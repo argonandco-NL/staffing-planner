@@ -260,7 +260,12 @@ function ensureLoaded() {
 
 export function getStore(): StaffingStore {
   ensureLoaded();
-  return _cache;
+  // Return a fresh top-level snapshot so React's setState sees a new object
+  // reference and re-renders. Returning `_cache` directly causes setState's
+  // Object.is bail-out — after an in-place mutation the listener fires but
+  // React skips the re-render, so the planning board doesn't update until
+  // something else (e.g. week-shift) forces a render.
+  return { ..._cache };
 }
 
 export function subscribeStore(listener: Listener): () => void {
