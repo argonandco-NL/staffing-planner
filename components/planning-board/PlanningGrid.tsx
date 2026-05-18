@@ -9,6 +9,8 @@ import {
   PointerSensor,
   pointerWithin,
 } from '@dnd-kit/core';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { WeekCell, CELL_W } from './WeekCell';
@@ -33,8 +35,9 @@ import type {
 const PERSON_COL_W = 200; // a bit wider — single-line person info needs the horizontal room
 const HEADER_H = 40;       // sticky header row height
 const MIN_BAR_H = 4;       // minimum bar height so even 0.5d/wk assignments are visible
-const HOLIDAY_H = 4;       // holiday bars are thin horizontal stripes at top of row
+const HOLIDAY_H = 14;      // holiday bar height — tall enough to show label text
 const HOLIDAY_SPACE = 5;   // px reserved at top of each row for holiday bars
+const GROUP_HEADER_H = 24; // height of collapsible role-group header rows
 const BAR_GAP = 1;         // px gap between vertically stacked assignment bars
 const ROW_INSET = 2;       // px breathing room at top and bottom inside each row
 const TARGET_ROWS = 24;    // number of people rows that should fit without scrolling
@@ -167,6 +170,7 @@ export function PlanningGrid({
   // Dynamic row height: measure the scrollable container on mount and compute
   // a height that makes TARGET_ROWS fit without scrolling.
   const [rowH, setRowH] = useState(FALLBACK_ROW_H);
+  const [partnersCollapsed, setPartnersCollapsed] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!scrollRef.current) return;
@@ -202,9 +206,22 @@ export function PlanningGrid({
     return { person, holidayLanes, assignmentLanes };
   });
 
-  // Equal-height rows: cumulative tops are simple multiples of rowH.
-  const rowTops = personRows.map((_, i) => i * rowH);
-  const totalGridHeight = personRows.length * rowH;
+  // Split people into the collapsible Partners group and everyone else.
+  const partners = sortedPeople.filter((p) => p.role === 'Partner');
+  const others = sortedPeople.filter((p) => p.role !== 'Partner');
+
+  // Visual top of each person row, accounting for the group header row and
+  // whether the Partners group is collapsed.
+  const visualRowTops: Record<string, number> = {};
+  let _rowTop = 0;
+  if (partners.length > 0) {
+    _rowTop += GROUP_HEADER_H;
+    if (!partnersCollapsed) {
+      for (const p of partners) { visualRowTops[p.id] = _rowTop; _rowTop += rowH; }
+    }
+  }
+  for (const p of others) { visualRowTops[p.id] = _rowTop; _rowTop += rowH; }
+  const totalGridHeight = _rowTop;
 
   const openDemandItems = buildOpenDemandItems(demands, projects, visibleAssignments);
 
@@ -306,7 +323,33 @@ export function PlanningGrid({
 
               {/* Person rows — no assignment rendering here */}
               <tbody>
-                {personRows.map(({ person }) => (
+                {/* Collapsible Partners group header */}
+                {partners.length > 0 && (
+                  <tr className="border-b border-slate-200" style={{ height: GROUP_HEADER_H }}>
+                    <td
+                      className="sticky left-0 z-10 border-r border-slate-200 bg-slate-100 px-3 align-middle"
+                      style={{ width: PERSON_COL_W, minWidth: PERSON_COL_W }}
+                    >
+                      <button
+                        onClick={() => setPartnersCollapsed((c) => !c)}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 hover:text-slate-900"
+                      >
+                        {partnersCollapsed
+                          ? <ChevronRight className="h-3 w-3 shrink-0" />
+                          : <ChevronDown className="h-3 w-3 shrink-0" />
+                        }
+                        Partners
+                        <span className="font-normal text-slate-400">({partners.length})</span>
+                      </button>
+                    </td>
+                    {weeks.map((week) => (
+                      <td key={isoWeekId(week)} className="border-r border-slate-100 bg-slate-100" />
+                    ))}
+                  </tr>
+                )}
+                {sortedPeople
+                  .filter((p) => !(p.role === 'Partner' && partnersCollapsed))
+                  .map((person) => (
                   <tr
                     key={person.id}
                     className={cn(
@@ -387,45 +430,11 @@ export function PlanningGrid({
               }}
             >
               {mounted &&
-                personRows.flatMap(({ person, holidayLanes, assignmentLanes }, personIdx) => {
-                  const holidayNodes = holidayLanes.flatMap((lane, laneIdx) =>
-                    lane.map((h) => {
-                      const geom = barGeometry(h.startDate, h.endDate, weeks);
-                      if (!geom) return null;
-                      const top = rowTops[personIdx] + ROW_INSET + laneIdx * HOLIDAY_H;
-                      const days =
-                        Math.round(
-                          (parseISO(h.endDate).getTime() - parseISO(h.startDate).getTime()) /
-                            86400000
-                        ) + 1;
-                      // Prefer the Ref text from the import (e.g. "Vakantie",
-                      // "Training"). Fall back to the type when no notes.
-                      const label = h.notes?.trim() || (h.type === 'holiday' ? 'Holiday' : h.type);
-                      return (
-                        <div
-                          key={`holiday-${h.id}`}
-                          title={`${person.name} — ${label}\n${format(parseISO(h.startDate), 'MMM d')} – ${format(parseISO(h.endDate), 'MMM d')} (${days} ${days === 1 ? 'day' : 'days'})`}
-                          className="absolute flex items-center overflow-hidden rounded-sm select-none"
-                          style={{
-                            left: geom.left,
-                            top,
-                            width: geom.width,
-                            height: HOLIDAY_H,
-                            backgroundColor: '#475569', // slate-600
-                            color: '#ffffff',
-                            fontSize: 10,
-                            fontWeight: 500,
-                            paddingLeft: geom.width >= 60 ? 4 : 0,
-                            paddingRight: geom.width >= 60 ? 4 : 0,
-                          }}
-                        >
-                          {geom.width >= 60 && (
-                            <span className="truncate">{label}</span>
-                          )}
-                        </div>
-                      );
-                    })
-                  );
+                personRows
+                  .filter(({ person }) => !(person.role === 'Partner' && partnersCollapsed))
+                  .flatMap(({ person, holidayLanes, assignmentLanes }) => {
+                  const rowTop = visualRowTops[person.id] ?? 0;
+
                   const assignmentNodes = assignmentLanes.flatMap((lane, laneIdx) =>
                     lane.map((asgn) => {
                       const project = projects.find((p) => p.id === asgn.projectId);
@@ -433,19 +442,12 @@ export function PlanningGrid({
                       const geom = barGeometry(asgn.startDate, asgn.endDate, weeks);
                       if (!geom) return null;
 
-                      // Available vertical space for bars: row minus equal top/bottom insets.
-                      // Holiday stripes sit in the top ROW_INSET+HOLIDAY_H area and overlap
-                      // the bar visually (they're thin enough not to matter).
                       const availableBarH = rowH - ROW_INSET * 2;
-
-                      // Bar height proportional to utilization (daysPerWeek / contractDaysPerWeek)
                       const barH = Math.max(
                         MIN_BAR_H,
                         Math.round((asgn.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
                       );
 
-                      // Stack this bar below all concurrent bars from earlier lanes.
-                      // Sequential (non-overlapping) bars share lane 0 and the same top offset.
                       let stackOffset = ROW_INSET;
                       for (let li = 0; li < laneIdx; li++) {
                         const concurrent = assignmentLanes[li].find(
@@ -460,7 +462,6 @@ export function PlanningGrid({
                         }
                       }
 
-                      // Over-capacity: total concurrent daysPerWeek exceeds person's contract
                       const concurrentTotal = assignmentLanes.flat().reduce(
                         (sum, a) =>
                           a.endDate >= asgn.startDate && a.startDate <= asgn.endDate
@@ -470,19 +471,61 @@ export function PlanningGrid({
                       );
                       const isOverCapacity = concurrentTotal > person.contractDaysPerWeek;
 
-                      const top = rowTops[personIdx] + stackOffset;
                       return (
                         <AssignmentSpan
                           key={asgn.id}
                           assignment={asgn}
                           project={project}
                           isOverCapacity={isOverCapacity}
-                          posStyle={{ left: geom.left, top, width: geom.width, height: barH }}
+                          posStyle={{ left: geom.left, top: rowTop + stackOffset, width: geom.width, height: barH }}
                         />
                       );
                     })
                   );
-                  return [...holidayNodes, ...assignmentNodes];
+
+                  // Holidays render after assignments so they appear on top —
+                  // important when a person is both on holiday and assigned.
+                  const holidayNodes = holidayLanes.flatMap((lane, laneIdx) =>
+                    lane.map((h) => {
+                      const geom = barGeometry(h.startDate, h.endDate, weeks);
+                      if (!geom) return null;
+                      const top = rowTop + ROW_INSET + laneIdx * (HOLIDAY_H + 2);
+                      const days =
+                        Math.round(
+                          (parseISO(h.endDate).getTime() - parseISO(h.startDate).getTime()) /
+                            86400000
+                        ) + 1;
+                      const label = h.notes?.trim() || (h.type === 'holiday' ? 'Holiday' : h.type);
+                      return (
+                        <Tooltip
+                          key={`holiday-${h.id}`}
+                          content={`${person.name} — ${label}\n${format(parseISO(h.startDate), 'MMM d')} – ${format(parseISO(h.endDate), 'MMM d')} (${days} ${days === 1 ? 'day' : 'days'})`}
+                          borderColor="#c2622a"
+                        >
+                          <div
+                            className="absolute flex items-center overflow-hidden rounded-sm select-none"
+                            style={{
+                              left: geom.left,
+                              top,
+                              width: geom.width,
+                              height: HOLIDAY_H,
+                              backgroundColor: '#c2622a',
+                              color: '#ffffff',
+                              fontSize: 10,
+                              fontWeight: 500,
+                              paddingLeft: geom.width >= 60 ? 4 : 0,
+                              paddingRight: geom.width >= 60 ? 4 : 0,
+                              pointerEvents: 'auto',
+                            }}
+                          >
+                            {geom.width >= 60 && <span className="truncate">{label}</span>}
+                          </div>
+                        </Tooltip>
+                      );
+                    })
+                  );
+
+                  return [...assignmentNodes, ...holidayNodes];
                 })}
             </div>
           </div>
