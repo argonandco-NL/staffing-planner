@@ -80,7 +80,7 @@ export function Sidebar() {
             </div>
           ))}
           <div className="flex items-center gap-2">
-            <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: '#c2622a' }} />
+            <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: '#FDD8B5' }} />
             <span className="text-[10px] text-slate-500">Holiday / Leave</span>
           </div>
           <div className="flex items-center gap-2">

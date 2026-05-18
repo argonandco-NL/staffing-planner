@@ -500,7 +500,7 @@ export function PlanningGrid({
                         <Tooltip
                           key={`holiday-${h.id}`}
                           content={`${person.name} — ${label}\n${format(parseISO(h.startDate), 'MMM d')} – ${format(parseISO(h.endDate), 'MMM d')} (${days} ${days === 1 ? 'day' : 'days'})`}
-                          borderColor="#c2622a"
+                          borderColor="#FDD8B5"
                         >
                           <div
                             className="absolute flex items-center overflow-hidden rounded-sm select-none"
@@ -509,8 +509,8 @@ export function PlanningGrid({
                               top,
                               width: geom.width,
                               height: HOLIDAY_H,
-                              backgroundColor: '#c2622a',
-                              color: '#ffffff',
+                              backgroundColor: '#FDD8B5',
+                              color: '#44403c',
                               fontSize: 10,
                               fontWeight: 500,
                               paddingLeft: geom.width >= 60 ? 4 : 0,
