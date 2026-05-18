@@ -9,17 +9,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input, Select, Textarea } from '@/components/ui/select';
+import { Input, Select, Textarea } from '@/components/ui/form-inputs';
+import { ROLES } from '@/lib/constants/roles';
 import type { Project, ProjectDemand } from '@/types';
-
-const ROLES = [
-  'Partner',
-  'Associate Partner',
-  'Principal',
-  'Lead',
-  'Senior Consultant',
-  'Consultant',
-];
 
 interface DemandEditModalProps {
   open: boolean;
@@ -51,7 +43,7 @@ export function DemandEditModal({
         id: crypto.randomUUID(),
         projectId,
         roleRequired: 'Consultant',
-        daysPerWeek: 4,
+        daysPerWeek: 5,
         startDate: project?.startDate ?? '',
         endDate: project?.endDate ?? '',
         quantity: 1,

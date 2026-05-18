@@ -15,7 +15,7 @@ export function getProjectStyle(project: Project): React.CSSProperties {
     case 'proposal': {
       // Probability = opacity: p=10 → 10% opaque (very light blue), p=90 → 90% opaque (dark blue).
       // Floor at 0.08 so even 0% probability is faintly visible.
-      const alpha = Math.max(0.08, project.probability / 100);
+      const alpha = Math.min(1, Math.max(0.08, project.probability / 100));
       return {
         backgroundColor: `rgba(29, 78, 216, ${alpha})`, // blue-700 base
         color: '#fff',

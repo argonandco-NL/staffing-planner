@@ -125,9 +125,7 @@ export async function parseHolidayFile(
 
     const wie = String(wieRaw ?? '').trim();
     const ref = String(refRaw ?? '').trim();
-    // Stop on the first truly empty row — the sheet has unrelated text below
-    // the list that we shouldn't try to parse.
-    if (!wie && !ref && !vanRaw && !totRaw) break;
+    if (!wie && !ref && !vanRaw && !totRaw) continue;
     if (!wie) {
       warnings.push(`Row ${i + 1}: missing name, skipped.`);
       continue;

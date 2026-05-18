@@ -1,10 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import type { NextRequest, NextResponse } from 'next/server';
+import { isSupabaseConfigured } from './client';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = Boolean(url && key);
+export { isSupabaseConfigured };
 
 /**
  * Server-side Supabase client for use inside Next.js proxy (formerly middleware).

@@ -9,17 +9,9 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input, Select } from '@/components/ui/select';
+import { Input, Select } from '@/components/ui/form-inputs';
+import { ROLES } from '@/lib/constants/roles';
 import type { Person, PersonRole } from '@/types';
-
-const ROLES: PersonRole[] = [
-  'Partner',
-  'Associate Partner',
-  'Principal',
-  'Lead',
-  'Senior Consultant',
-  'Consultant',
-];
 
 interface PersonEditModalProps {
   open: boolean;

@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { LayoutGrid, FolderKanban, BarChart3, CalendarDays, FileUp, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { LEGEND_ITEMS } from '@/lib/ui/projectColors';
 
 const NAV = [
   { href: '/planning', label: 'Planning Board', icon: LayoutGrid },
@@ -67,6 +68,26 @@ export function Sidebar() {
           })}
         </ul>
       </nav>
+
+      {/* Legend — lives in the sidebar so the planning board itself can use the
+          full viewport height. Each swatch on its own row since the column is narrow. */}
+      <div className="border-t border-slate-200 px-3 py-2 space-y-1">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Legend</p>
+        {LEGEND_ITEMS.map(({ label, style }) => (
+          <div key={label} className="flex items-center gap-2">
+            <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={style} />
+            <span className="text-[10px] text-slate-500">{label}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-2">
+          <div className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: '#475569' }} />
+          <span className="text-[10px] text-slate-500">Holiday</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-2.5 w-2.5 rounded-sm bg-red-200 ring-1 ring-red-400 shrink-0" />
+          <span className="text-[10px] text-slate-500">Over-allocated</span>
+        </div>
+      </div>
 
       <div className="border-t border-slate-200 p-3 space-y-2">
         {isSupabaseConfigured ? (

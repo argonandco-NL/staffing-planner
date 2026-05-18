@@ -4,7 +4,7 @@ import { useState, FormEvent, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/select';
+import { Input } from '@/components/ui/form-inputs';
 
 function LoginForm() {
   const router = useRouter();

@@ -45,17 +45,6 @@ export function WeekCell({ person, week, allAssignments, exceptions }: WeekCellP
 
   const stats = getPersonWeekStats(person, week, allAssignments, exceptions);
 
-  const utilPct = stats.availableDays > 0
-    ? Math.round((stats.assignedDays / stats.availableDays) * 100)
-    : 0;
-
-  // Utilization bar color: slate → amber → green → red
-  const barColor = stats.isOverAllocated
-    ? '#ef4444'
-    : utilPct >= 80 ? '#22c55e'
-    : utilPct >= 40 ? '#f59e0b'
-    : '#cbd5e1';
-
   return (
     <td
       ref={setNodeRef}
@@ -74,23 +63,7 @@ export function WeekCell({ person, week, allAssignments, exceptions }: WeekCellP
         <div className="absolute inset-0 ring-1 ring-inset ring-red-300 pointer-events-none" />
       )}
 
-      {/* Utilization bar — thin strip at bottom, width = utilisation % */}
-      {stats.assignedDays > 0 && (
-        <div
-          className="absolute bottom-0 left-0 h-[3px] pointer-events-none z-10"
-          style={{
-            width: `${Math.min(utilPct, 100)}%`,
-            backgroundColor: barColor,
-          }}
-        />
-      )}
 
-      {/* Over-allocation warning icon */}
-      {stats.isOverAllocated && (
-        <div className="absolute bottom-1 right-1 z-10 text-[9px] leading-none pointer-events-none text-red-500 font-semibold">
-          ⚠
-        </div>
-      )}
     </td>
   );
 }

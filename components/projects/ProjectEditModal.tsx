@@ -9,7 +9,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input, Select, Textarea } from '@/components/ui/select';
+import { Input, Select, Textarea } from '@/components/ui/form-inputs';
 import type { Project, ProjectStatus } from '@/types';
 
 interface ProjectEditModalProps {
@@ -40,9 +40,14 @@ export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEdit
     if (project) {
       setForm({ ...project });
     } else {
+      // Prefill both dates with today so the date picker opens on the current
+      // year. The user almost always wants the current year, never 1900.
+      const today = new Date().toISOString().slice(0, 10);
       setForm({
         ...EMPTY,
         id: crypto.randomUUID(),
+        startDate: today,
+        endDate: today,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });

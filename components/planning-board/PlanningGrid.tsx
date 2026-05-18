@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -17,6 +17,7 @@ import { OpenDemandPanel } from './OpenDemandPanel';
 import { isoWeekId } from '@/lib/dates/weeks';
 import { buildOpenDemandItems } from '@/lib/calculations/staffing';
 import { overlapsWeek } from '@/lib/dates/weeks';
+import { ROLE_ORDER } from '@/lib/constants/roles';
 import type {
   Person,
   Project,
@@ -29,17 +30,15 @@ import type {
 // ---------------------------------------------------------------------------
 // Layout constants — keep in sync with Tailwind classes below
 // ---------------------------------------------------------------------------
-const PERSON_COL_W = 176; // w-44
-export const ROW_H = 36;   // minimum row height
+const PERSON_COL_W = 200; // a bit wider — single-line person info needs the horizontal room
 const HEADER_H = 40;       // sticky header row height
-const LANE_H = 12;         // height of each assignment bar
-const LANE_GAP = 2;        // vertical gap between stacked bars in the same row
-const LANE_OFFSET = 4;     // top padding within row before first lane
-
-function rowHeightForLanes(laneCount: number): number {
-  // Enough room for the person label at top + all lanes + bottom padding
-  return Math.max(ROW_H, LANE_OFFSET + laneCount * (LANE_H + LANE_GAP) + LANE_OFFSET);
-}
+const MIN_BAR_H = 4;       // minimum bar height so even 0.5d/wk assignments are visible
+const HOLIDAY_H = 4;       // holiday bars are thin horizontal stripes at top of row
+const HOLIDAY_SPACE = 5;   // px reserved at top of each row for holiday bars
+const BAR_GAP = 1;         // px gap between vertically stacked assignment bars
+const ROW_INSET = 2;       // px breathing room at top and bottom inside each row
+const TARGET_ROWS = 24;    // number of people rows that should fit without scrolling
+const FALLBACK_ROW_H = 36; // used before container height is measured
 
 // Each week column is treated as 5 working days (Mon–Fri); weekend dates
 // clamp into the visible weekday range so a bar can still be drawn for them.
@@ -85,25 +84,24 @@ function barGeometry(
   return { left, width: Math.max(8, right - left) };
 }
 
-const ROLE_ORDER: Record<string, number> = {
-  Partner: 0,
-  'Associate Partner': 1,
-  Principal: 2,
-  Lead: 3,
-  'Senior Consultant': 4,
-  Consultant: 5,
-};
-
-function roleColorClass(role: string): string {
+function roleTagClass(role: string): string {
   const map: Record<string, string> = {
-    Partner: 'bg-purple-100 text-purple-800',
-    'Associate Partner': 'bg-violet-100 text-violet-800',
-    Principal: 'bg-blue-100 text-blue-800',
-    Lead: 'bg-teal-100 text-teal-800',
-    'Senior Consultant': 'bg-green-100 text-green-800',
-    Consultant: 'bg-slate-100 text-slate-700',
+    Partner:             'bg-slate-800 text-white',
+    'Associate Partner': 'bg-slate-600 text-white',
+    Principal:           'bg-slate-500 text-white',
+    Lead:                'bg-slate-400 text-white',
+    'Senior Consultant': 'bg-slate-300 text-slate-800',
+    Consultant:          'bg-slate-200 text-slate-700',
   };
-  return map[role] ?? 'bg-slate-100 text-slate-700';
+  return map[role] ?? 'bg-slate-200 text-slate-700';
+}
+
+function roleAbbrev(role: string): string {
+  const map: Record<string, string> = {
+    'Associate Partner': 'AP',
+    'Senior Consultant': 'Sr Consultant',
+  };
+  return map[role] ?? role;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +141,8 @@ interface PlanningGridProps {
   weeks: ISOWeek[];
   onAssignmentUpdate: (a: Assignment) => void;
   onAssignmentCreate: (a: Assignment) => void;
+  /** Called when a bar is dragged back onto the Open Demand panel. */
+  onAssignmentDelete?: (id: string) => void;
   onPersonEdit?: (person: Person) => void;
 }
 
@@ -155,6 +155,7 @@ export function PlanningGrid({
   weeks,
   onAssignmentUpdate,
   onAssignmentCreate,
+  onAssignmentDelete,
   onPersonEdit,
 }: PlanningGridProps) {
   // Defer dnd-kit (which assigns sequential aria-describedby IDs) until after
@@ -162,6 +163,16 @@ export function PlanningGrid({
   // React logs a hydration mismatch warning.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Dynamic row height: measure the scrollable container on mount and compute
+  // a height that makes TARGET_ROWS fit without scrolling.
+  const [rowH, setRowH] = useState(FALLBACK_ROW_H);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!scrollRef.current) return;
+    const available = scrollRef.current.clientHeight - HEADER_H;
+    setRowH(Math.max(24, Math.floor(available / TARGET_ROWS)));
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -182,26 +193,18 @@ export function PlanningGrid({
     projectsWithDemands.has(a.projectId)
   );
 
-  // Pre-compute lanes and dynamic row heights per person.
-  // Holiday bars sit in their own lanes above the assignment bars.
+  // Pre-compute lanes per person. Row heights are all equal (= rowH).
   const personRows = sortedPeople.map((person) => {
     const personAssignments = visibleAssignments.filter((a) => a.personId === person.id);
     const personHolidays = exceptions.filter((e) => e.personId === person.id);
     const holidayLanes = groupIntoLanes(personHolidays);
     const assignmentLanes = groupIntoLanes(personAssignments);
-    const totalLanes = holidayLanes.length + assignmentLanes.length;
-    const rowH = rowHeightForLanes(Math.max(1, totalLanes));
-    return { person, holidayLanes, assignmentLanes, rowH };
+    return { person, holidayLanes, assignmentLanes };
   });
 
-  // Cumulative top offsets for overlay positioning
-  const rowTops: number[] = [];
-  let cumTop = 0;
-  for (const { rowH } of personRows) {
-    rowTops.push(cumTop);
-    cumTop += rowH;
-  }
-  const totalGridHeight = cumTop;
+  // Equal-height rows: cumulative tops are simple multiples of rowH.
+  const rowTops = personRows.map((_, i) => i * rowH);
+  const totalGridHeight = personRows.length * rowH;
 
   const openDemandItems = buildOpenDemandItems(demands, projects, visibleAssignments);
 
@@ -215,9 +218,21 @@ export function PlanningGrid({
       | undefined;
     const dropData = over.data.current as
       | { type: 'cell'; personId: string; week: ISOWeek }
+      | { type: 'demand-panel' }
       | undefined;
 
-    if (!dragData || !dropData || dropData.type !== 'cell') return;
+    if (!dragData || !dropData) return;
+
+    // Drop on the Open Demand panel → un-assign (delete the assignment row).
+    // Only meaningful for assignment drags; demand-card drops here are no-ops.
+    if (dropData.type === 'demand-panel') {
+      if (dragData.type === 'assignment' && onAssignmentDelete) {
+        onAssignmentDelete(dragData.assignment.id);
+      }
+      return;
+    }
+
+    if (dropData.type !== 'cell') return;
 
     // Drag only re-assigns to a different person — dates stay locked to the
     // demand's dates (which are owned by the projects board).
@@ -254,7 +269,7 @@ export function PlanningGrid({
     <DndContext sensors={sensors} onDragEnd={handleDragEnd} collisionDetection={pointerWithin}>
       <div className="flex h-full overflow-hidden">
         {/* Scrollable grid */}
-        <div className="flex-1 overflow-auto">
+        <div ref={scrollRef} className="flex-1 overflow-auto">
           {/* Use position:relative so the overlay can be absolutely placed */}
           <div className="relative" style={{ width: gridWidth }}>
             <table
@@ -291,16 +306,16 @@ export function PlanningGrid({
 
               {/* Person rows — no assignment rendering here */}
               <tbody>
-                {personRows.map(({ person, rowH }) => (
+                {personRows.map(({ person }) => (
                   <tr
                     key={person.id}
                     className={cn(
-                      'group border-b border-slate-100',
+                      'group border-b border-slate-300',
                       !person.active && 'opacity-50 bg-slate-50'
                     )}
                     style={{ height: rowH }}
                   >
-                    {/* Sticky person info cell */}
+                    {/* Sticky person info cell — single-line layout for vertical density */}
                     <td
                       className={cn(
                         'sticky left-0 z-10 border-r border-slate-200 px-3 align-middle',
@@ -308,19 +323,30 @@ export function PlanningGrid({
                       )}
                       style={{ width: PERSON_COL_W, minWidth: PERSON_COL_W }}
                     >
-                      <div className="flex items-center justify-between gap-1">
-                        <div className="text-xs font-medium text-slate-800 truncate leading-snug">
+                      <div className="flex items-center gap-1.5 w-full">
+                        <span className="text-[11px] font-medium text-slate-800 leading-snug min-w-0 flex-1">
                           {person.name}
-                          {!person.active && (
-                            <span className="ml-1 text-[9px] font-normal italic text-slate-400">
-                              (inactive)
-                            </span>
+                        </span>
+                        <span
+                          className={cn(
+                            'shrink-0 inline-block rounded px-1 text-[9px] font-medium leading-4',
+                            roleTagClass(person.role)
                           )}
-                        </div>
+                        >
+                          {roleAbbrev(person.role)}
+                        </span>
+                        <span className="shrink-0 text-[9px] text-slate-400">
+                          {person.contractDaysPerWeek}d
+                        </span>
+                        {!person.active && (
+                          <span className="shrink-0 text-[9px] font-normal italic text-slate-400">
+                            (inactive)
+                          </span>
+                        )}
                         {onPersonEdit && (
                           <button
                             onClick={() => onPersonEdit(person)}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            className="ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                             title="Edit person"
                           >
                             <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -328,19 +354,6 @@ export function PlanningGrid({
                             </svg>
                           </button>
                         )}
-                      </div>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span
-                          className={cn(
-                            'inline-block rounded px-1 text-[9px] font-medium leading-4',
-                            roleColorClass(person.role)
-                          )}
-                        >
-                          {person.role}
-                        </span>
-                        <span className="text-[9px] text-slate-400">
-                          {person.contractDaysPerWeek}d
-                        </span>
                       </div>
                     </td>
 
@@ -375,12 +388,11 @@ export function PlanningGrid({
             >
               {mounted &&
                 personRows.flatMap(({ person, holidayLanes, assignmentLanes }, personIdx) => {
-                  const baseTop = rowTops[personIdx] + LANE_OFFSET;
                   const holidayNodes = holidayLanes.flatMap((lane, laneIdx) =>
                     lane.map((h) => {
                       const geom = barGeometry(h.startDate, h.endDate, weeks);
                       if (!geom) return null;
-                      const top = baseTop + laneIdx * (LANE_H + LANE_GAP);
+                      const top = rowTops[personIdx] + ROW_INSET + laneIdx * HOLIDAY_H;
                       const days =
                         Math.round(
                           (parseISO(h.endDate).getTime() - parseISO(h.startDate).getTime()) /
@@ -398,9 +410,9 @@ export function PlanningGrid({
                             left: geom.left,
                             top,
                             width: geom.width,
-                            height: LANE_H,
-                            backgroundColor: '#facc15', // amber-400
-                            color: '#78350f',
+                            height: HOLIDAY_H,
+                            backgroundColor: '#475569', // slate-600
+                            color: '#ffffff',
                             fontSize: 10,
                             fontWeight: 500,
                             paddingLeft: geom.width >= 60 ? 4 : 0,
@@ -420,14 +432,52 @@ export function PlanningGrid({
                       if (!project) return null;
                       const geom = barGeometry(asgn.startDate, asgn.endDate, weeks);
                       if (!geom) return null;
-                      const top =
-                        baseTop + (holidayLanes.length + laneIdx) * (LANE_H + LANE_GAP);
+
+                      // Available vertical space for bars: row minus equal top/bottom insets.
+                      // Holiday stripes sit in the top ROW_INSET+HOLIDAY_H area and overlap
+                      // the bar visually (they're thin enough not to matter).
+                      const availableBarH = rowH - ROW_INSET * 2;
+
+                      // Bar height proportional to utilization (daysPerWeek / contractDaysPerWeek)
+                      const barH = Math.max(
+                        MIN_BAR_H,
+                        Math.round((asgn.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
+                      );
+
+                      // Stack this bar below all concurrent bars from earlier lanes.
+                      // Sequential (non-overlapping) bars share lane 0 and the same top offset.
+                      let stackOffset = ROW_INSET;
+                      for (let li = 0; li < laneIdx; li++) {
+                        const concurrent = assignmentLanes[li].find(
+                          (a) => a.endDate >= asgn.startDate && a.startDate <= asgn.endDate
+                        );
+                        if (concurrent) {
+                          stackOffset +=
+                            Math.max(
+                              MIN_BAR_H,
+                              Math.round((concurrent.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
+                            ) + BAR_GAP;
+                        }
+                      }
+
+                      // Over-capacity: total concurrent daysPerWeek exceeds person's contract
+                      const concurrentTotal = assignmentLanes.flat().reduce(
+                        (sum, a) =>
+                          a.endDate >= asgn.startDate && a.startDate <= asgn.endDate
+                            ? sum + a.daysPerWeek
+                            : sum,
+                        0
+                      );
+                      const isOverCapacity = concurrentTotal > person.contractDaysPerWeek;
+
+                      const top = rowTops[personIdx] + stackOffset;
                       return (
                         <AssignmentSpan
                           key={asgn.id}
                           assignment={asgn}
                           project={project}
-                          posStyle={{ left: geom.left, top, width: geom.width, height: LANE_H }}
+                          isOverCapacity={isOverCapacity}
+                          posStyle={{ left: geom.left, top, width: geom.width, height: barH }}
                         />
                       );
                     })

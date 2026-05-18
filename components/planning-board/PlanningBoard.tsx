@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, AlertTriangle, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
+import { RefreshCw, AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 import { addWeeks } from 'date-fns';
 import { PlanningGrid } from './PlanningGrid';
 import { PersonEditModal } from './PersonEditModal';
@@ -11,12 +11,12 @@ import { getNext13Weeks } from '@/lib/dates/weeks';
 import {
   getMockStore,
   upsertAssignment,
+  deleteAssignment,
   upsertPerson,
   deletePerson,
   subscribeMockStore,
 } from '@/lib/data/mock-store';
 import { getPersonWeekStats } from '@/lib/calculations/staffing';
-import { LEGEND_ITEMS } from '@/lib/ui/projectColors';
 import type { StaffingStore, Assignment, Person } from '@/types';
 
 export function PlanningBoard() {
@@ -37,17 +37,21 @@ export function PlanningBoard() {
     upsertAssignment(assignment);
   }, []);
 
-  const overAllocatedCount = store.people.filter((person) =>
-    person.active &&
-    weeks.some((week) =>
-      getPersonWeekStats(person, week, store.assignments, store.availabilityExceptions).isOverAllocated
-    )
-  ).length;
+  // Only flag people over-allocated in more than one visible week to avoid
+  // surfacing brief one-off spikes that may be intentional.
+  const overAllocatedPeople = store.people.filter(
+    (person) =>
+      person.active &&
+      weeks.filter((week) =>
+        getPersonWeekStats(person, week, store.assignments, store.availabilityExceptions)
+          .isOverAllocated
+      ).length > 1
+  );
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
+      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2">
         <h1 className="text-base font-semibold text-slate-900">Planning Board</h1>
 
         {/* Week-window navigation */}
@@ -55,6 +59,7 @@ export function PlanningBoard() {
           <Button
             variant="ghost"
             size="icon"
+            className="cursor-pointer"
             onClick={() => setWeekOffset((o) => o - 1)}
             title="Shift one week earlier"
           >
@@ -66,11 +71,22 @@ export function PlanningBoard() {
           <Button
             variant="ghost"
             size="icon"
+            className="cursor-pointer"
             onClick={() => setWeekOffset((o) => o + 1)}
             title="Shift one week later"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
+          {weekOffset !== 1 && (
+            <button
+              onClick={() => setWeekOffset(1)}
+              className="ml-1 flex cursor-pointer items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-[10px] font-medium text-white hover:bg-slate-700 whitespace-nowrap"
+              title="Jump to upcoming week"
+            >
+              <CalendarDays className="h-3 w-3" />
+              upcoming week
+            </button>
+          )}
           {weekOffset !== 0 && (
             <button
               onClick={() => setWeekOffset(0)}
@@ -82,11 +98,12 @@ export function PlanningBoard() {
           )}
         </div>
 
-        {overAllocatedCount > 0 && (
+        {overAllocatedPeople.length > 0 && (
           <div className="flex items-center gap-1.5 rounded-md bg-red-50 border border-red-200 px-2 py-1">
-            <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+            <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
             <span className="text-xs font-medium text-red-700">
-              {overAllocatedCount} over-allocated {overAllocatedCount === 1 ? 'person' : 'people'}
+              {overAllocatedPeople.length} over-allocated (&gt;1 week):{' '}
+              {overAllocatedPeople.map((p) => p.name).join(', ')}
             </span>
           </div>
         )}
@@ -115,26 +132,7 @@ export function PlanningBoard() {
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50 px-4 py-1.5">
-        <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Legend:</span>
-        {LEGEND_ITEMS.map(({ label, style }) => (
-          <div key={label} className="flex items-center gap-1">
-            <div className="h-2.5 w-2.5 rounded-sm" style={style} />
-            <span className="text-[10px] text-slate-500">{label}</span>
-          </div>
-        ))}
-        <div className="flex items-center gap-1">
-          <div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: '#facc15' }} />
-          <span className="text-[10px] text-slate-500">Holiday</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-2.5 w-2.5 rounded-sm bg-red-200 ring-1 ring-red-400" />
-          <span className="text-[10px] text-slate-500">Over-allocated</span>
-        </div>
-      </div>
-
-      {/* Grid */}
+      {/* Grid (legend lives in the sidebar to keep this page vertically compact) */}
       <div className="flex-1 overflow-hidden">
         <PlanningGrid
           people={store.people}
@@ -145,6 +143,7 @@ export function PlanningBoard() {
           weeks={weeks}
           onAssignmentUpdate={handleAssignmentChange}
           onAssignmentCreate={handleAssignmentChange}
+          onAssignmentDelete={(id) => deleteAssignment(id)}
           onPersonEdit={(person) => {
             setEditingPerson(person);
             setPersonModalOpen(true);

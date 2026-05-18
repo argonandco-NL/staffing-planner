@@ -7,18 +7,24 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { getMockStore, subscribeMockStore } from '@/lib/data/mock-store';
-import { getNext13Weeks } from '@/lib/dates/weeks';
-import { getPersonWeekStats, buildOpenDemandItems, getWeightedDemand } from '@/lib/calculations/staffing';
-import type { StaffingStore } from '@/types';
+import { getNext13Weeks, overlapsWeek } from '@/lib/dates/weeks';
+import {
+  getPersonWeekStats,
+  buildOpenDemandItems,
+  getWeightedDemand,
+} from '@/lib/calculations/staffing';
+import type { StaffingStore, PersonRole } from '@/types';
 
-const ROLES = [
-  'Partner',
-  'Associate Partner',
-  'Principal',
-  'Lead',
-  'Senior Consultant',
-  'Consultant',
-] as const;
+// Same order used on the planning board so the team appears in a consistent
+// sequence across both pages.
+const ROLE_ORDER: Record<PersonRole, number> = {
+  Partner: 0,
+  'Associate Partner': 1,
+  Principal: 2,
+  Lead: 3,
+  'Senior Consultant': 4,
+  Consultant: 5,
+};
 
 function pct(n: number) {
   if (!isFinite(n)) return '—';
@@ -39,103 +45,76 @@ export function InsightsDashboard() {
   const [store, setStore] = useState<StaffingStore>(getMockStore());
   useEffect(() => subscribeMockStore(() => setStore(getMockStore())), []);
 
+  // The heatmap respects the week-shift arrows; the KPI cards below are
+  // intentionally anchored to today so they always describe actual next week.
   const [weekOffset, setWeekOffset] = useState(0);
   const weeks = getNext13Weeks(addWeeks(new Date(), weekOffset));
   const activePeople = store.people.filter((p) => p.active);
 
-  // ── Per-role × per-week utilisation ────────────────────────────────────────
-  const roleWeekData = ROLES.map((role) => {
-    const rolePeople = activePeople.filter((p) => p.role === role);
-    if (rolePeople.length === 0) return null;
+  // ── Per-person × per-week utilisation (replaces the old per-role heatmap) ──
+  const sortedPeople = [...store.people].sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99);
+  });
 
-    const weekStats = weeks.map((week) => {
-      let totalAssigned = 0;
-      let totalAvailable = 0;
-      rolePeople.forEach((person) => {
-        const s = getPersonWeekStats(
-          person,
-          week,
-          store.assignments,
-          store.availabilityExceptions
-        );
-        totalAssigned += s.assignedDays;
-        totalAvailable += s.availableDays;
-      });
+  const personWeekData = sortedPeople.map((person) => {
+    const weekStats = weeks.map((w) => {
+      const s = getPersonWeekStats(person, w, store.assignments, store.availabilityExceptions);
       const utilPct =
-        totalAvailable > 0 ? Math.round((totalAssigned / totalAvailable) * 100) : null;
-      const isOver = totalAvailable > 0 && totalAssigned > totalAvailable;
-      return { utilPct, isOver };
+        s.availableDays > 0 ? Math.round((s.assignedDays / s.availableDays) * 100) : null;
+      return { utilPct, isOver: s.isOverAllocated };
     });
-
-    const validWeeks = weekStats.filter((w) => w.utilPct !== null);
+    const valid = weekStats.filter((w) => w.utilPct !== null);
     const avgUtil =
-      validWeeks.length > 0
-        ? Math.round(
-            validWeeks.reduce((sum, w) => sum + (w.utilPct ?? 0), 0) / validWeeks.length
-          )
+      valid.length > 0
+        ? Math.round(valid.reduce((sum, w) => sum + (w.utilPct ?? 0), 0) / valid.length)
         : null;
+    return { person, weekStats, avgUtil };
+  });
 
-    return { role, headcount: rolePeople.length, weekStats, avgUtil };
-  }).filter(Boolean) as {
-    role: string;
-    headcount: number;
-    weekStats: { utilPct: number | null; isOver: boolean }[];
-    avgUtil: number | null;
-  }[];
+  // ── KPI window (anchored on today, not on weekOffset) ───────────────────────
+  const anchorWeeks = getNext13Weeks();
+  const nextWeek = anchorWeeks[1] ?? anchorWeeks[0];
+  const nextFour = anchorWeeks.slice(1, 5);
 
-  // ── KPI helpers ─────────────────────────────────────────────────────────────
-  const overAllocatedPeople = activePeople.filter((person) =>
-    weeks.some((week) => {
-      const s = getPersonWeekStats(
-        person,
-        week,
-        store.assignments,
-        store.availabilityExceptions
-      );
-      return s.isOverAllocated;
-    })
+  // Active people whose next week is over-allocated.
+  const overAllocatedNext = activePeople.filter(
+    (p) => getPersonWeekStats(p, nextWeek, store.assignments, store.availabilityExceptions).isOverAllocated
   ).length;
 
-  const underUtilisedPeople = activePeople.filter((person) => {
-    const weekStats = weeks.map((week) =>
-      getPersonWeekStats(person, week, store.assignments, store.availabilityExceptions)
-    );
-    const utilised = weekStats.filter((s) => s.availableDays > 0);
-    const avg =
-      utilised.length > 0
-        ? utilised.reduce((sum, s) => sum + Math.min(s.utilization, 200), 0) / utilised.length
-        : 0;
-    return avg < 40 && avg > 0;
+  // Under 40% in next week's available days (0% counts as under-allocated too).
+  const underAllocatedNext = activePeople.filter((p) => {
+    const s = getPersonWeekStats(p, nextWeek, store.assignments, store.availabilityExceptions);
+    if (s.availableDays <= 0) return false;
+    const u = (s.assignedDays / s.availableDays) * 100;
+    return u < 40;
   }).length;
 
+  // Open roles whose demand window covers next week.
   const openDemandItems = buildOpenDemandItems(
     store.projectDemands,
     store.projects,
     store.assignments
   );
-  const totalOpenRoles = openDemandItems.reduce((sum, i) => sum + i.openCount, 0);
+  const openRolesNext = openDemandItems
+    .filter((item) => overlapsWeek(item.demand.startDate, item.demand.endDate, nextWeek))
+    .reduce((sum, item) => sum + item.openCount, 0);
 
+  // Billable ratio = sold-project days over the next 4 weeks ÷ team contract capacity over the next 4 weeks.
   const projectsById = new Map(store.projects.map((p) => [p.id, p]));
-
-  let totalBillableDays = 0;
-  let totalNonBillableDays = 0;
-  store.assignments.forEach((a) => {
-    const project = projectsById.get(a.projectId);
-    if (!project) return;
-    const start = new Date(a.startDate);
-    const end = new Date(a.endDate);
-    const overlappingWeeks = weeks.reduce(
-      (n, w) => (start <= w.endDate && end >= w.startDate ? n + 1 : n),
+  const soldDaysNext4 = store.assignments.reduce((sum, a) => {
+    const proj = projectsById.get(a.projectId);
+    if (!proj || proj.status !== 'sold') return sum;
+    const overlapping = nextFour.reduce(
+      (n, w) => (overlapsWeek(a.startDate, a.endDate, w) ? n + 1 : n),
       0
     );
-    const days = overlappingWeeks * a.daysPerWeek;
-    if (project.billable) totalBillableDays += days;
-    else totalNonBillableDays += days;
-  });
-  const totalDays = totalBillableDays + totalNonBillableDays;
-  const billablePct = totalDays > 0 ? (totalBillableDays / totalDays) * 100 : 0;
+    return sum + overlapping * a.daysPerWeek;
+  }, 0);
+  const capacityDaysNext4 = activePeople.reduce((sum, p) => sum + p.contractDaysPerWeek * 4, 0);
+  const billablePct = capacityDaysNext4 > 0 ? (soldDaysNext4 / capacityDaysNext4) * 100 : 0;
 
-  // Pipeline
+  // ── Pipeline (kept on the visible 13-week window) ───────────────────────────
   const soldDays = store.projects
     .filter((p) => p.status === 'sold')
     .flatMap((p) => store.projectDemands.filter((d) => d.projectId === p.id))
@@ -143,11 +122,7 @@ export function InsightsDashboard() {
       (sum, d) =>
         sum +
         d.daysPerWeek *
-          weeks.filter((w) => {
-            const s = new Date(d.startDate);
-            const e = new Date(d.endDate);
-            return s <= w.endDate && e >= w.startDate;
-          }).length,
+          weeks.filter((w) => overlapsWeek(d.startDate, d.endDate, w)).length,
       0
     );
 
@@ -157,11 +132,7 @@ export function InsightsDashboard() {
       store.projectDemands.filter((d) => d.projectId === p.id).map((d) => ({ d, p }))
     )
     .reduce((sum, { d, p }) => {
-      const wks = weeks.filter((w) => {
-        const s = new Date(d.startDate);
-        const e = new Date(d.endDate);
-        return s <= w.endDate && e >= w.startDate;
-      }).length;
+      const wks = weeks.filter((w) => overlapsWeek(d.startDate, d.endDate, w)).length;
       return sum + getWeightedDemand(d.daysPerWeek, p.probability) * wks;
     }, 0);
 
@@ -202,49 +173,49 @@ export function InsightsDashboard() {
       </div>
 
       <div className="flex-1 overflow-auto p-4 space-y-6">
-        {/* KPI cards */}
+        {/* KPI cards — anchored on next week / next 4 weeks from today */}
         <div className="grid grid-cols-4 gap-3">
           <KpiCard
             icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
-            label="Over-allocated"
-            value={String(overAllocatedPeople)}
-            sub="people this period"
+            label="Over-allocated next week"
+            value={String(overAllocatedNext)}
+            sub={`people in W${nextWeek.week}`}
             accent="red"
           />
           <KpiCard
             icon={<Users className="h-4 w-4 text-amber-500" />}
-            label="Under-utilised"
-            value={String(underUtilisedPeople)}
-            sub="< 40% avg utilization"
+            label="Under-allocated next week"
+            value={String(underAllocatedNext)}
+            sub={`< 40% utilisation in W${nextWeek.week}`}
             accent="amber"
           />
           <KpiCard
             icon={<AlertTriangle className="h-4 w-4 text-slate-500" />}
-            label="Open roles"
-            value={String(totalOpenRoles)}
-            sub={`across ${openDemandItems.length} demands`}
+            label="Open roles next week"
+            value={String(openRolesNext)}
+            sub={`unfilled in W${nextWeek.week}`}
             accent="neutral"
           />
           <KpiCard
             icon={<TrendingUp className="h-4 w-4 text-green-500" />}
-            label="Billable ratio"
+            label="Billable ratio (next 4 wks)"
             value={pct(billablePct)}
-            sub={`${Math.round(totalBillableDays)}d billable of ${Math.round(totalDays)}d`}
+            sub={`${Math.round(soldDaysNext4)}d sold of ${Math.round(capacityDaysNext4)}d capacity`}
             accent="green"
           />
         </div>
 
-        {/* Utilisation heatmap: role × week */}
+        {/* Per-person utilisation heatmap */}
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Utilisation by role — next 13 weeks
+            Utilisation by person — next 13 weeks
           </h2>
           <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="text-xs border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left font-medium text-slate-500 min-w-[160px]">
-                    Role
+                  <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left font-medium text-slate-500 min-w-[180px]">
+                    Person
                   </th>
                   {weeks.map((w) => (
                     <th
@@ -263,19 +234,27 @@ export function InsightsDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {roleWeekData.map(({ role, headcount, weekStats, avgUtil }) => (
-                  <tr key={role} className="border-b border-slate-100">
-                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-700 border-r border-slate-100">
-                      <div>{role}</div>
-                      <div className="text-[10px] font-normal text-slate-400">
-                        {headcount} {headcount === 1 ? 'person' : 'people'}
+                {personWeekData.map(({ person, weekStats, avgUtil }) => (
+                  <tr
+                    key={person.id}
+                    className={cn(
+                      'border-b border-slate-100',
+                      !person.active && 'opacity-60'
+                    )}
+                  >
+                    <td className="sticky left-0 z-10 bg-white px-3 py-1 font-medium text-slate-700 border-r border-slate-100">
+                      <div className="flex items-center gap-1.5">
+                        <span>{person.name}</span>
+                        <span className="text-[10px] font-normal text-slate-400">
+                          {person.role}
+                        </span>
                       </div>
                     </td>
                     {weekStats.map((ws, wi) => (
                       <td
                         key={wi}
                         className={cn(
-                          'px-1 py-1.5 text-center tabular-nums',
+                          'px-1 py-1 text-center tabular-nums',
                           utilCellStyle(ws.utilPct, ws.isOver)
                         )}
                       >
@@ -284,7 +263,7 @@ export function InsightsDashboard() {
                     ))}
                     <td
                       className={cn(
-                        'px-3 py-1.5 text-center font-semibold tabular-nums border-l border-slate-200',
+                        'px-3 py-1 text-center font-semibold tabular-nums border-l border-slate-200',
                         avgUtil !== null
                           ? utilCellStyle(avgUtil, avgUtil > 100)
                           : 'text-slate-300'

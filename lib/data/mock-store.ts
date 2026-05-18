@@ -306,16 +306,3 @@ export function replaceAllExceptions(next: AvailabilityException[]): void {
   notifyMock();
 }
 
-// ---------------------------------------------------------------------------
-// Reset — only meaningful in mock mode
-// ---------------------------------------------------------------------------
-
-export function resetMockStore(): void {
-  if (isSupabaseConfigured) return supa.resetStore();
-  _people = deepClone(SEED_PEOPLE);
-  _projects = deepClone(SEED_PROJECTS);
-  _demands = deepClone(SEED_PROJECT_DEMANDS);
-  _assignments = deepClone(SEED_ASSIGNMENTS);
-  _exceptions = deepClone(SEED_AVAILABILITY_EXCEPTIONS);
-  notifyMock();
-}

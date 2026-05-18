@@ -191,7 +191,10 @@ export function ProjectsView() {
                               ) : projectDemands.length > 0 ? (
                                 <span className="text-xs text-green-600 font-medium">Fully staffed</span>
                               ) : (
-                                <span className="text-xs text-slate-400">No roles defined</span>
+                                <div className="flex items-center gap-1 text-amber-700">
+                                  <AlertCircle className="h-3.5 w-3.5" />
+                                  <span className="text-xs font-medium">No roles yet — define one</span>
+                                </div>
                               )}
                             </td>
                             <td
