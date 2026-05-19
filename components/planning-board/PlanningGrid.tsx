@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -112,6 +112,37 @@ function roleAbbrev(role: string): string {
 // the same person row don't overlap visually. Generic over anything with
 // startDate / endDate ISO strings.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Stack/height geometry for one assignment bar — shared by the overlay render
+// and the per-person spillover precompute.
+// ---------------------------------------------------------------------------
+function computeBarLayout(
+  asgn: Assignment,
+  person: Person,
+  assignmentLanes: Assignment[][],
+  laneIdx: number,
+  availableBarH: number,
+): { stackOffset: number; barH: number } {
+  const barH = Math.max(
+    MIN_BAR_H,
+    Math.round((asgn.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
+  );
+  let stackOffset = ROW_INSET;
+  for (let li = 0; li < laneIdx; li++) {
+    const concurrent = assignmentLanes[li].find(
+      (a) => a.endDate >= asgn.startDate && a.startDate <= asgn.endDate
+    );
+    if (concurrent) {
+      stackOffset +=
+        Math.max(
+          MIN_BAR_H,
+          Math.round((concurrent.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
+        ) + BAR_GAP;
+    }
+  }
+  return { stackOffset, barH };
+}
+
 function groupIntoLanes<T extends { startDate: string; endDate: string }>(items: T[]): T[][] {
   const sorted = [...items].sort(
     (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
@@ -171,6 +202,9 @@ export function PlanningGrid({
   // a height that makes TARGET_ROWS fit without scrolling.
   const [rowH, setRowH] = useState(FALLBACK_ROW_H);
   const [partnersCollapsed, setPartnersCollapsed] = useState(true);
+  // null = nothing selected; otherwise a project id or the '__holiday__' sentinel.
+  // Set by clicking a bar; cleared by clicking anywhere else on the board.
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!scrollRef.current) return;
@@ -210,17 +244,42 @@ export function PlanningGrid({
   const partners = sortedPeople.filter((p) => p.role === 'Partner');
   const others = sortedPeople.filter((p) => p.role !== 'Partner');
 
-  // Visual top of each person row, accounting for the group header row and
-  // whether the Partners group is collapsed.
+  // Per-person spillover height: when concurrent bars stack past the row bottom,
+  // a grey spacer row of this height is inserted below the person row so the
+  // overflowing bar doesn't bleed into the next person.
+  const availableBarH = rowH - ROW_INSET * 2;
+  const spilloverH: Record<string, number> = {};
+  for (const row of personRows) {
+    let maxBottom = 0;
+    for (let laneIdx = 0; laneIdx < row.assignmentLanes.length; laneIdx++) {
+      for (const asgn of row.assignmentLanes[laneIdx]) {
+        const { stackOffset, barH } = computeBarLayout(
+          asgn, row.person, row.assignmentLanes, laneIdx, availableBarH
+        );
+        if (stackOffset + barH > maxBottom) maxBottom = stackOffset + barH;
+      }
+    }
+    const over = maxBottom - (rowH - ROW_INSET);
+    if (over > 0) spilloverH[row.person.id] = over + ROW_INSET;
+  }
+
+  // Visual top of each person row, accounting for the group header row,
+  // collapsed-Partners state, and per-person spillover spacer rows.
   const visualRowTops: Record<string, number> = {};
   let _rowTop = 0;
   if (partners.length > 0) {
     _rowTop += GROUP_HEADER_H;
     if (!partnersCollapsed) {
-      for (const p of partners) { visualRowTops[p.id] = _rowTop; _rowTop += rowH; }
+      for (const p of partners) {
+        visualRowTops[p.id] = _rowTop;
+        _rowTop += rowH + (spilloverH[p.id] ?? 0);
+      }
     }
   }
-  for (const p of others) { visualRowTops[p.id] = _rowTop; _rowTop += rowH; }
+  for (const p of others) {
+    visualRowTops[p.id] = _rowTop;
+    _rowTop += rowH + (spilloverH[p.id] ?? 0);
+  }
   const totalGridHeight = _rowTop;
 
   const openDemandItems = buildOpenDemandItems(demands, projects, visibleAssignments);
@@ -284,7 +343,7 @@ export function PlanningGrid({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd} collisionDetection={pointerWithin}>
-      <div className="flex h-full overflow-hidden">
+      <div className="flex h-full overflow-hidden" onClick={() => setSelectedKey(null)}>
         {/* Scrollable grid */}
         <div ref={scrollRef} className="flex-1 overflow-auto">
           {/* Use position:relative so the overlay can be absolutely placed */}
@@ -350,8 +409,8 @@ export function PlanningGrid({
                 {sortedPeople
                   .filter((p) => !(p.role === 'Partner' && partnersCollapsed))
                   .map((person) => (
+                  <Fragment key={person.id}>
                   <tr
-                    key={person.id}
                     className={cn(
                       'group border-b border-slate-300',
                       !person.active && 'opacity-50 bg-slate-50'
@@ -411,6 +470,23 @@ export function PlanningGrid({
                       />
                     ))}
                   </tr>
+                  {/* Spillover spacer — absorbs over-allocation overflow without
+                      bleeding into the next person's row. */}
+                  {(spilloverH[person.id] ?? 0) > 0 && (
+                    <tr
+                      className="border-b border-slate-300 bg-slate-100"
+                      style={{ height: spilloverH[person.id] }}
+                    >
+                      <td
+                        className="sticky left-0 z-10 border-r border-slate-200 bg-slate-100"
+                        style={{ width: PERSON_COL_W, minWidth: PERSON_COL_W }}
+                      />
+                      {weeks.map((week) => (
+                        <td key={isoWeekId(week)} className="border-r border-slate-100 bg-slate-100" />
+                      ))}
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -442,25 +518,9 @@ export function PlanningGrid({
                       const geom = barGeometry(asgn.startDate, asgn.endDate, weeks);
                       if (!geom) return null;
 
-                      const availableBarH = rowH - ROW_INSET * 2;
-                      const barH = Math.max(
-                        MIN_BAR_H,
-                        Math.round((asgn.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
+                      const { stackOffset, barH } = computeBarLayout(
+                        asgn, person, assignmentLanes, laneIdx, availableBarH
                       );
-
-                      let stackOffset = ROW_INSET;
-                      for (let li = 0; li < laneIdx; li++) {
-                        const concurrent = assignmentLanes[li].find(
-                          (a) => a.endDate >= asgn.startDate && a.startDate <= asgn.endDate
-                        );
-                        if (concurrent) {
-                          stackOffset +=
-                            Math.max(
-                              MIN_BAR_H,
-                              Math.round((concurrent.daysPerWeek / person.contractDaysPerWeek) * availableBarH)
-                            ) + BAR_GAP;
-                        }
-                      }
 
                       const concurrentTotal = assignmentLanes.flat().reduce(
                         (sum, a) =>
@@ -470,6 +530,7 @@ export function PlanningGrid({
                         0
                       );
                       const isOverCapacity = concurrentTotal > person.contractDaysPerWeek;
+                      const dimmed = selectedKey !== null && selectedKey !== project.id;
 
                       return (
                         <AssignmentSpan
@@ -477,6 +538,8 @@ export function PlanningGrid({
                           assignment={asgn}
                           project={project}
                           isOverCapacity={isOverCapacity}
+                          dimmed={dimmed}
+                          onSelect={() => setSelectedKey(project.id)}
                           posStyle={{ left: geom.left, top: rowTop + stackOffset, width: geom.width, height: barH }}
                         />
                       );
@@ -503,6 +566,10 @@ export function PlanningGrid({
                           borderColor="#FDD8B5"
                         >
                           <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedKey('__holiday__');
+                            }}
                             className="absolute flex items-center overflow-hidden rounded-sm select-none"
                             style={{
                               left: geom.left,
@@ -516,6 +583,9 @@ export function PlanningGrid({
                               paddingLeft: geom.width >= 60 ? 4 : 0,
                               paddingRight: geom.width >= 60 ? 4 : 0,
                               pointerEvents: 'auto',
+                              opacity: selectedKey !== null && selectedKey !== '__holiday__' ? 0.25 : undefined,
+                              cursor: 'pointer',
+                              transition: 'opacity 120ms ease',
                             }}
                           >
                             {geom.width >= 60 && <span className="truncate">{label}</span>}

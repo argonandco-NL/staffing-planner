@@ -13,9 +13,20 @@ interface AssignmentSpanProps {
   posStyle: React.CSSProperties;
   /** True when this assignment is part of a concurrent set that exceeds the person's contract capacity */
   isOverCapacity?: boolean;
+  /** Fade this bar (a different project is currently selected) */
+  dimmed?: boolean;
+  /** Click handler — used to highlight all bars of the same project */
+  onSelect?: () => void;
 }
 
-export function AssignmentSpan({ assignment, project, posStyle, isOverCapacity }: AssignmentSpanProps) {
+export function AssignmentSpan({
+  assignment,
+  project,
+  posStyle,
+  isOverCapacity,
+  dimmed,
+  onSelect,
+}: AssignmentSpanProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: assignment.id,
     data: { type: 'assignment', assignment, project },
@@ -35,6 +46,10 @@ export function AssignmentSpan({ assignment, project, posStyle, isOverCapacity }
         ref={setNodeRef}
         {...listeners}
         {...attributes}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect?.();
+        }}
         className={cn(
           'absolute flex items-center overflow-hidden rounded-sm',
           'cursor-grab select-none touch-none',
@@ -50,8 +65,10 @@ export function AssignmentSpan({ assignment, project, posStyle, isOverCapacity }
           paddingLeft: showLabel ? 4 : 0,
           paddingRight: showLabel ? 4 : 0,
           pointerEvents: 'auto',
+          opacity: dimmed ? 0.25 : undefined,
+          transition: 'opacity 120ms ease',
           boxShadow: isOverCapacity
-            ? 'inset 0 0 0 1.5px #fca5a5'   // red-300, matches WeekCell ring-red-300
+            ? 'inset 0 0 0 1.5px #fca5a5'
             : 'inset 0 0 0 1px rgba(255,255,255,0.8)',
         }}
       >

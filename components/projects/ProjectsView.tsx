@@ -17,7 +17,8 @@ import {
 } from '@/lib/data/mock-store';
 import { ProjectEditModal } from './ProjectEditModal';
 import { DemandEditModal } from './DemandEditModal';
-import type { StaffingStore, Project, ProjectDemand } from '@/types';
+import type { StaffingStore, Project, ProjectDemand, Person } from '@/types';
+import { ROLE_ORDER } from '@/lib/constants/roles';
 import { cn } from '@/lib/utils';
 
 export function ProjectsView() {
@@ -90,6 +91,19 @@ export function ProjectsView() {
     }
   });
 
+  // People staffed on each project, sorted partner → consultant.
+  const peopleByProject = new Map<string, Person[]>();
+  store.assignments.forEach((a) => {
+    const person = store.people.find((p) => p.id === a.personId);
+    if (!person) return;
+    const list = peopleByProject.get(a.projectId) ?? [];
+    if (!list.some((p) => p.id === person.id)) list.push(person);
+    peopleByProject.set(a.projectId, list);
+  });
+  peopleByProject.forEach((list) => {
+    list.sort((a, b) => (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99));
+  });
+
   const grouped: Record<'sold' | 'planned' | 'internal', Project[]> = {
     sold: store.projects.filter((p) => p.status === 'sold'),
     planned: store.projects.filter((p) => p.status === 'planned' || p.status === 'proposal'),
@@ -128,6 +142,7 @@ export function ProjectsView() {
                     <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Prob.</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Start</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">End</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Staffed</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Open roles</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">Notes</th>
                     <th className="px-3 py-2 text-right text-xs font-medium text-slate-500">Actions</th>
@@ -136,7 +151,7 @@ export function ProjectsView() {
                 <tbody>
                   {projects.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-3 py-4 text-center text-xs text-slate-400">
+                      <td colSpan={11} className="px-3 py-4 text-center text-xs text-slate-400">
                         No projects
                       </td>
                     </tr>
@@ -182,6 +197,14 @@ export function ProjectsView() {
                             <td className="px-3 py-2 text-xs text-slate-500">
                               {format(new Date(project.endDate), 'MMM d, yyyy')}
                             </td>
+                            <td
+                              className="px-3 py-2 text-xs text-slate-600 max-w-[220px]"
+                              title={(peopleByProject.get(project.id) ?? []).map((p) => p.name).join(', ')}
+                            >
+                              <div className="truncate">
+                                {(peopleByProject.get(project.id) ?? []).map((p) => p.name).join(', ') || '—'}
+                              </div>
+                            </td>
                             <td className="px-3 py-2">
                               {openRoles > 0 ? (
                                 <div className="flex items-center gap-1 text-amber-700">
@@ -224,7 +247,7 @@ export function ProjectsView() {
                           {/* Expanded demand rows */}
                           {isExpanded && (
                             <tr className="bg-slate-50">
-                              <td colSpan={10} className="px-6 pb-3 pt-1">
+                              <td colSpan={11} className="px-6 pb-3 pt-1">
                                 <div className="rounded border border-slate-200 bg-white">
                                   <table className="w-full text-xs">
                                     <thead>
