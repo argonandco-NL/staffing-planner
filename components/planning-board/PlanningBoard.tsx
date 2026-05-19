@@ -37,15 +37,15 @@ export function PlanningBoard() {
     upsertAssignment(assignment);
   }, []);
 
-  // Only flag people over-allocated in more than one visible week to avoid
-  // surfacing brief one-off spikes that may be intentional.
+  // Flag people whose assignments exceed their contract days in any visible
+  // week — holidays are intentionally excluded so the warning reflects
+  // structural over-staffing rather than calendar collisions with leave.
   const overAllocatedPeople = store.people.filter(
     (person) =>
       person.active &&
-      weeks.filter((week) =>
-        getPersonWeekStats(person, week, store.assignments, store.availabilityExceptions)
-          .isOverAllocated
-      ).length > 1
+      weeks.some((week) =>
+        getPersonWeekStats(person, week, store.assignments, []).isOverAllocated
+      )
   );
 
   return (
@@ -87,22 +87,14 @@ export function PlanningBoard() {
               upcoming week
             </button>
           )}
-          {weekOffset !== 0 && (
-            <button
-              onClick={() => setWeekOffset(0)}
-              className="text-[10px] text-blue-600 hover:underline ml-1"
-              title="Snap back to current week"
-            >
-              today
-            </button>
-          )}
+
         </div>
 
         {overAllocatedPeople.length > 0 && (
           <div className="flex items-center gap-1.5 rounded-md bg-red-50 border border-red-200 px-2 py-1">
             <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
             <span className="text-xs font-medium text-red-700">
-              {overAllocatedPeople.length} over-allocated (&gt;1 week):{' '}
+              {overAllocatedPeople.length} over-allocated (excl. holidays):{' '}
               {overAllocatedPeople.map((p) => p.name).join(', ')}
             </span>
           </div>
