@@ -162,12 +162,18 @@ export function ProjectsView() {
                         (d) => d.projectId === project.id
                       );
                       const openRoles = openCountByProject.get(project.id) ?? 0;
+                      // Compare ISO date strings to avoid timezone drift.
+                      const todayIso = new Date().toISOString().slice(0, 10);
+                      const isPast = project.endDate < todayIso;
 
                       return (
                         <Fragment key={project.id}>
                           {/* Project row */}
                           <tr
-                            className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
+                            className={cn(
+                              'border-b border-slate-100 hover:bg-slate-50 cursor-pointer',
+                              isPast && 'opacity-50'
+                            )}
                             onClick={() => toggleExpand(project.id)}
                           >
                             <td className="px-2 py-2">

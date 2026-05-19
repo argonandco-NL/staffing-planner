@@ -44,19 +44,28 @@ export function DemandEditModal({
       const days = differenceInDays(parseISO(demand.endDate), parseISO(demand.startDate)) + 1;
       setDurationWeeks(days > 0 ? String(Math.round(days / 7)) : '');
     } else {
+      const start = project?.startDate ?? '';
+      const end = project?.endDate ?? '';
       setForm({
         id: crypto.randomUUID(),
         projectId,
         roleRequired: 'Consultant',
         daysPerWeek: 5,
-        startDate: project?.startDate ?? '',
-        endDate: project?.endDate ?? '',
+        startDate: start,
+        endDate: end,
         quantity: 1,
         notes: '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      setDurationWeeks('');
+      // Default the duration to match the parent project's length so a new
+      // role spans the whole project unless the user narrows it.
+      if (start && end) {
+        const days = differenceInDays(parseISO(end), parseISO(start)) + 1;
+        setDurationWeeks(days > 0 ? String(Math.round(days / 7)) : '');
+      } else {
+        setDurationWeeks('');
+      }
     }
   }, [demand, projectId, project, open]);
 
