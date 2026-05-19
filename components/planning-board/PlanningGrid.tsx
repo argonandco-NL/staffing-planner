@@ -588,13 +588,14 @@ export function PlanningGrid({
                     })
                   );
 
-                  // Holidays render after assignments so they appear on top —
-                  // important when a person is both on holiday and assigned.
-                  const holidayNodes = holidayLanes.flatMap((lane, laneIdx) =>
+                  // Holidays render after assignments so they appear on top.
+                  // Each holiday bar is full row-height (= 100% of the person's
+                  // capacity) and semi-transparent so any assignment bar
+                  // underneath stays partially visible.
+                  const holidayNodes = holidayLanes.flatMap((lane) =>
                     lane.map((h) => {
                       const geom = barGeometry(h.startDate, h.endDate, weeks);
                       if (!geom) return null;
-                      const top = rowTop + ROW_INSET + laneIdx * (HOLIDAY_H + 2);
                       const days =
                         Math.round(
                           (parseISO(h.endDate).getTime() - parseISO(h.startDate).getTime()) /
@@ -615,10 +616,10 @@ export function PlanningGrid({
                             className="absolute flex items-center overflow-hidden rounded-sm select-none"
                             style={{
                               left: geom.left,
-                              top,
+                              top: rowTop + ROW_INSET,
                               width: geom.width,
-                              height: HOLIDAY_H,
-                              backgroundColor: '#FDD8B5',
+                              height: availableBarH,
+                              backgroundColor: 'rgba(253, 216, 181, 0.65)',
                               color: '#44403c',
                               fontSize: 10,
                               fontWeight: 500,
