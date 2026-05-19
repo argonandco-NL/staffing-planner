@@ -101,6 +101,18 @@ export function subscribeMockStore(listener: Listener): () => void {
   };
 }
 
+/** Surface load errors from Supabase. Always returns null in mock mode. */
+export function getLastLoadError(): string | null {
+  if (isSupabaseConfigured) return supa.getLastLoadError();
+  return null;
+}
+
+/** Force a refetch. No-op in mock mode (seed data is always in memory). */
+export function reloadStore(): Promise<void> {
+  if (isSupabaseConfigured) return supa.reloadStore();
+  return Promise.resolve();
+}
+
 export function getMockStore(): StaffingStore {
   if (isSupabaseConfigured) return supa.getStore();
   return {

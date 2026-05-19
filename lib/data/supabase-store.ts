@@ -49,11 +49,18 @@ function emptyStore(): StaffingStore {
 
 let _cache: StaffingStore = emptyStore();
 let _loadPromise: Promise<void> | null = null;
+// Aggregated last-load error, surfaced to the UI via getLastLoadError().
+// Cleared when a load succeeds.
+let _lastLoadError: string | null = null;
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
 function notify() {
   listeners.forEach((l) => l());
+}
+
+export function getLastLoadError(): string | null {
+  return _lastLoadError;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,10 +237,29 @@ async function loadAll(): Promise<void> {
     supabase.from('availability_exceptions').select('*').order('created_at', { ascending: true }),
   ]);
 
-  const errors = [peopleRes.error, projectsRes.error, demandsRes.error, assignmentsRes.error, exceptionsRes.error]
-    .filter(Boolean);
-  if (errors.length > 0) {
-    console.error('Failed to load data from Supabase:', errors);
+  // Per-table diagnostics — surfaced in the browser console so a stuck deploy
+  // can be diagnosed without server access.
+  const counts = {
+    people: peopleRes.data?.length ?? 0,
+    projects: projectsRes.data?.length ?? 0,
+    projectDemands: demandsRes.data?.length ?? 0,
+    assignments: assignmentsRes.data?.length ?? 0,
+    availabilityExceptions: exceptionsRes.data?.length ?? 0,
+  };
+  console.log('[Supabase] Loaded rows:', counts);
+
+  const tableErrors: { table: string; message: string }[] = [];
+  if (peopleRes.error) tableErrors.push({ table: 'people', message: peopleRes.error.message });
+  if (projectsRes.error) tableErrors.push({ table: 'projects', message: projectsRes.error.message });
+  if (demandsRes.error) tableErrors.push({ table: 'project_demands', message: demandsRes.error.message });
+  if (assignmentsRes.error) tableErrors.push({ table: 'assignments', message: assignmentsRes.error.message });
+  if (exceptionsRes.error) tableErrors.push({ table: 'availability_exceptions', message: exceptionsRes.error.message });
+
+  if (tableErrors.length > 0) {
+    _lastLoadError = tableErrors.map((e) => `${e.table}: ${e.message}`).join(' · ');
+    console.error('[Supabase] Load errors:', tableErrors);
+  } else {
+    _lastLoadError = null;
   }
 
   _cache = {
@@ -249,9 +275,20 @@ async function loadAll(): Promise<void> {
 function ensureLoaded() {
   if (_loadPromise) return _loadPromise;
   _loadPromise = loadAll().catch((e) => {
+    _lastLoadError = e instanceof Error ? e.message : String(e);
     console.error('Initial Supabase load failed:', e);
+    notify();
   });
   return _loadPromise;
+}
+
+/**
+ * Force a refetch from Supabase. Used by the Refresh button to recover from
+ * silent load failures (RLS policy changes, network blips, etc.).
+ */
+export function reloadStore(): Promise<void> {
+  _loadPromise = null;
+  return ensureLoaded();
 }
 
 // ---------------------------------------------------------------------------

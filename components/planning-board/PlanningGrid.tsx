@@ -225,13 +225,12 @@ export function PlanningGrid({
     return (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99);
   });
 
-  // Only show assignments for projects that have at least one demand defined.
-  // A project with no demands is not yet configured for staffing and should
-  // not appear on the board.
-  const projectsWithDemands = new Set(demands.map((d) => d.projectId));
-  const visibleAssignments = assignments.filter((a) =>
-    projectsWithDemands.has(a.projectId)
-  );
+  // Show assignments whose parent project still exists. We used to also require
+  // the project to have at least one demand — that filter silently hid every
+  // assignment when project_demands failed to load (e.g. RLS quirk on a fresh
+  // deploy), so it's been relaxed to just the project existence check.
+  const projectIds = new Set(projects.map((p) => p.id));
+  const visibleAssignments = assignments.filter((a) => projectIds.has(a.projectId));
 
   // Pre-compute lanes per person. Row heights are all equal (= rowH).
   const personRows = sortedPeople.map((person) => {

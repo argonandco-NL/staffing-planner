@@ -15,6 +15,8 @@ import {
   upsertPerson,
   deletePerson,
   subscribeMockStore,
+  getLastLoadError,
+  reloadStore,
 } from '@/lib/data/mock-store';
 import { getPersonWeekStats } from '@/lib/calculations/staffing';
 import type { StaffingStore, Assignment, Person } from '@/types';
@@ -29,8 +31,19 @@ export function PlanningBoard() {
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
 
+  // Surface Supabase load errors (the cache layer logs to console; this puts
+  // the message in front of the user so silent failures are recoverable).
+  const [loadError, setLoadError] = useState<string | null>(getLastLoadError());
+
   useEffect(() => {
-    return subscribeMockStore(() => setStore(getMockStore()));
+    return subscribeMockStore(() => {
+      setStore(getMockStore());
+      setLoadError(getLastLoadError());
+    });
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    void reloadStore();
   }, []);
 
   const handleAssignmentChange = useCallback(
@@ -117,13 +130,27 @@ export function PlanningBoard() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setStore(getMockStore())}
-            title="Refresh"
+            onClick={handleRefresh}
+            title="Refresh data from Supabase"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-1.5 text-xs text-red-700">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="font-medium">Could not load all data:</span>
+          <span className="truncate">{loadError}</span>
+          <button
+            onClick={handleRefresh}
+            className="ml-auto rounded border border-red-300 bg-white px-2 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Grid (legend lives in the sidebar to keep this page vertically compact) */}
       <div className="flex-1 overflow-hidden">
