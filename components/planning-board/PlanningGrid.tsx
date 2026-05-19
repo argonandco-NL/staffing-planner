@@ -11,7 +11,7 @@ import {
 } from '@dnd-kit/core';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@/components/ui/tooltip';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { WeekCell, CELL_W } from './WeekCell';
 import { AssignmentSpan } from './AssignmentSpan';
@@ -173,8 +173,8 @@ interface PlanningGridProps {
   demands: ProjectDemand[];
   exceptions: AvailabilityException[];
   weeks: ISOWeek[];
-  onAssignmentUpdate: (a: Assignment) => void;
-  onAssignmentCreate: (a: Assignment) => void;
+  onAssignmentUpdate: (a: Assignment) => Promise<{ error: { message: string } | null }> | void;
+  onAssignmentCreate: (a: Assignment) => Promise<{ error: { message: string } | null }> | void;
   /** Called when a bar is dragged back onto the Open Demand panel. */
   onAssignmentDelete?: (id: string) => void;
   onPersonEdit?: (person: Person) => void;
@@ -205,6 +205,8 @@ export function PlanningGrid({
   // null = nothing selected; otherwise a project id or the '__holiday__' sentinel.
   // Set by clicking a bar; cleared by clicking anywhere else on the board.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Transient error banner shown when a drag-create fails server-side.
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!scrollRef.current) return;
@@ -321,7 +323,18 @@ export function PlanningGrid({
       });
     } else if (dragData.type === 'demand') {
       const { demand, project } = dragData;
-      onAssignmentCreate({
+      // Map project status → assignment status. Sold/internal/non-billable
+      // projects are confirmed at creation; planned/proposal are tentative.
+      // This matches the Supabase assignment_status enum and avoids producing
+      // assignments whose status is inconsistent with the parent project.
+      const status: Assignment['status'] =
+        project.status === 'sold' ||
+        project.status === 'internal' ||
+        project.status === 'non_billable'
+          ? 'confirmed'
+          : 'tentative';
+
+      const newAssignment: Assignment = {
         id: crypto.randomUUID(),
         personId: dropData.personId,
         projectId: project.id,
@@ -330,11 +343,24 @@ export function PlanningGrid({
         startDate: demand.startDate,
         endDate: demand.endDate,
         daysPerWeek: demand.daysPerWeek,
-        status: 'tentative',
-        billable: project.billable,
+        status,
+        // Defensive default — the schema requires NOT NULL boolean.
+        billable: project.billable ?? true,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      };
+
+      void (async () => {
+        try {
+          const result = await onAssignmentCreate(newAssignment);
+          if (result && result.error) {
+            setErrorMessage(`Could not create assignment: ${result.error.message}`);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'unknown error';
+          setErrorMessage(`Could not create assignment: ${msg}`);
+        }
+      })();
     }
   }
 
@@ -343,7 +369,22 @@ export function PlanningGrid({
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd} collisionDetection={pointerWithin}>
-      <div className="flex h-full overflow-hidden" onClick={() => setSelectedKey(null)}>
+      <div className="flex h-full overflow-hidden relative" onClick={() => setSelectedKey(null)}>
+        {errorMessage && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow">
+            <span>{errorMessage}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setErrorMessage(null);
+              }}
+              className="ml-2 rounded px-1 text-red-600 hover:bg-red-100"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {/* Scrollable grid */}
         <div ref={scrollRef} className="flex-1 overflow-auto">
           {/* Use position:relative so the overlay can be absolutely placed */}
@@ -531,6 +572,7 @@ export function PlanningGrid({
                       );
                       const isOverCapacity = concurrentTotal > person.contractDaysPerWeek;
                       const dimmed = selectedKey !== null && selectedKey !== project.id;
+                      const isNew = differenceInDays(new Date(), new Date(asgn.createdAt)) < 3;
 
                       return (
                         <AssignmentSpan
@@ -539,6 +581,7 @@ export function PlanningGrid({
                           project={project}
                           isOverCapacity={isOverCapacity}
                           dimmed={dimmed}
+                          isNew={isNew}
                           onSelect={() => setSelectedKey(project.id)}
                           posStyle={{ left: geom.left, top: rowTop + stackOffset, width: geom.width, height: barH }}
                         />

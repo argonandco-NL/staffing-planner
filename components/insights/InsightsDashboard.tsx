@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertTriangle, TrendingUp, Users, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Users, CheckCircle2, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 import { addWeeks, format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,7 @@ import {
   buildOpenDemandItems,
   getWeightedDemand,
 } from '@/lib/calculations/staffing';
-import type { StaffingStore, PersonRole } from '@/types';
+import type { StaffingStore, PersonRole, Assignment } from '@/types';
 
 // Same order used on the planning board so the team appears in a consistent
 // sequence across both pages.
@@ -100,19 +101,80 @@ export function InsightsDashboard() {
     .filter((item) => overlapsWeek(item.demand.startDate, item.demand.endDate, nextWeek))
     .reduce((sum, item) => sum + item.openCount, 0);
 
-  // Billable ratio = sold-project days over the next 4 weeks ÷ team contract capacity over the next 4 weeks.
+  // ── Billable ratio (next 4 weeks, excluding current week) ────────────────
+  // Numerator: sold-project days at 100% + planned/proposal days × probability.
+  // Denominator: active-people capacity minus vacation/leave days.
   const projectsById = new Map(store.projects.map((p) => [p.id, p]));
-  const soldDaysNext4 = store.assignments.reduce((sum, a) => {
-    const proj = projectsById.get(a.projectId);
-    if (!proj || proj.status !== 'sold') return sum;
-    const overlapping = nextFour.reduce(
-      (n, w) => (overlapsWeek(a.startDate, a.endDate, w) ? n + 1 : n),
+
+  function daysForAssignmentInWindow(a: Assignment): number {
+    return nextFour.reduce(
+      (n, w) => (overlapsWeek(a.startDate, a.endDate, w) ? n + a.daysPerWeek : n),
       0
     );
-    return sum + overlapping * a.daysPerWeek;
+  }
+
+  let soldProjectDays = 0;
+  let plannedProjectDaysRaw = 0;
+  let weightedPlannedDays = 0;
+  for (const a of store.assignments) {
+    const proj = projectsById.get(a.projectId);
+    if (!proj) continue;
+    const days = daysForAssignmentInWindow(a as Assignment);
+    if (proj.status === 'sold') {
+      soldProjectDays += days;
+    } else if (proj.status === 'planned' || proj.status === 'proposal') {
+      plannedProjectDaysRaw += days;
+      weightedPlannedDays += days * (proj.probability / 100);
+    }
+    // internal / non_billable explicitly excluded from numerator.
+  }
+
+  const totalCapacityDays = activePeople.reduce(
+    (sum, p) => sum + p.contractDaysPerWeek * nextFour.length,
+    0
+  );
+  // Vacation/leave days falling inside the window for active people.
+  const vacationDaysInWindow = activePeople.reduce((sum, person) => {
+    const personExceptions = store.availabilityExceptions.filter((e) => e.personId === person.id);
+    const days = nextFour.reduce((wkSum, w) => {
+      const exc = personExceptions.find((e) => overlapsWeek(e.startDate, e.endDate, w));
+      return wkSum + (exc ? exc.unavailableDaysPerWeek : 0);
+    }, 0);
+    return sum + days;
   }, 0);
-  const capacityDaysNext4 = activePeople.reduce((sum, p) => sum + p.contractDaysPerWeek * 4, 0);
-  const billablePct = capacityDaysNext4 > 0 ? (soldDaysNext4 / capacityDaysNext4) * 100 : 0;
+
+  const netCapacityDays = Math.max(0, totalCapacityDays - vacationDaysInWindow);
+  const billableNumerator = soldProjectDays + weightedPlannedDays;
+  const billablePct = netCapacityDays > 0 ? (billableNumerator / netCapacityDays) * 100 : 0;
+
+  // ── Per-role per-week utilisation heatmap (active people only) ─────────────
+  // Mirror the per-person layout, aggregating assigned/available days across
+  // everyone in a given role for each week.
+  const roleWeekData = (Object.keys(ROLE_ORDER) as PersonRole[])
+    .map((role) => {
+      const peopleInRole = activePeople.filter((p) => p.role === role);
+      if (peopleInRole.length === 0) return null;
+      const weekStats = weeks.map((w) => {
+        let assigned = 0;
+        let available = 0;
+        for (const p of peopleInRole) {
+          const s = getPersonWeekStats(p, w, store.assignments, store.availabilityExceptions);
+          assigned += s.assignedDays;
+          available += s.availableDays;
+        }
+        const utilPct = available > 0 ? Math.round((assigned / available) * 100) : null;
+        // Aggregate over-allocation: the group exceeds available capacity.
+        const isOver = utilPct !== null && utilPct > 100;
+        return { utilPct, isOver };
+      });
+      const valid = weekStats.filter((w) => w.utilPct !== null);
+      const avgUtil =
+        valid.length > 0
+          ? Math.round(valid.reduce((sum, w) => sum + (w.utilPct ?? 0), 0) / valid.length)
+          : null;
+      return { role, peopleCount: peopleInRole.length, weekStats, avgUtil };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
 
   // ── Pipeline (kept on the visible 13-week window) ───────────────────────────
   const soldDays = store.projects
@@ -200,8 +262,19 @@ export function InsightsDashboard() {
             icon={<TrendingUp className="h-4 w-4 text-green-500" />}
             label="Billable ratio (next 4 wks)"
             value={pct(billablePct)}
-            sub={`${Math.round(soldDaysNext4)}d sold of ${Math.round(capacityDaysNext4)}d capacity`}
+            sub={`${Math.round(billableNumerator)}d of ${Math.round(netCapacityDays)}d net capacity`}
             accent="green"
+            tooltip={[
+              `Period: next 4 weeks, excluding current week`,
+              `Active people: ${activePeople.length}`,
+              `Sold project days: ${Math.round(soldProjectDays)}`,
+              `Planned project days (raw): ${Math.round(plannedProjectDaysRaw)}`,
+              `Weighted planned contribution: ${Math.round(weightedPlannedDays)}`,
+              `Vacation/leave days excluded: ${Math.round(vacationDaysInWindow)}`,
+              `Total possible capacity: ${Math.round(totalCapacityDays)}`,
+              `Net available capacity: ${Math.round(netCapacityDays)}`,
+              `Formula: (${Math.round(soldProjectDays)} + ${Math.round(weightedPlannedDays)}) / ${Math.round(netCapacityDays)} = ${pct(billablePct)}`,
+            ].join('\n')}
           />
         </div>
 
@@ -281,6 +354,81 @@ export function InsightsDashboard() {
           </p>
         </section>
 
+        {/* Aggregated utilisation by role — same heatmap layout as the per-person table */}
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Utilisation by role — next 13 weeks
+          </h2>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left font-medium text-slate-500 min-w-[180px]">
+                    Role
+                  </th>
+                  {weeks.map((w) => (
+                    <th
+                      key={`${w.year}-${w.week}`}
+                      className="px-1 py-2 text-center font-medium text-slate-500 min-w-[52px]"
+                    >
+                      <div className="font-bold text-slate-600">W{w.week}</div>
+                      <div className="text-[9px] font-normal text-slate-400">
+                        {format(w.startDate, 'MMM d')}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-center font-medium text-slate-500 min-w-[56px] border-l border-slate-200">
+                    Avg
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {roleWeekData.length === 0 ? (
+                  <tr>
+                    <td colSpan={weeks.length + 2} className="px-3 py-3 text-center text-xs text-slate-400">
+                      No active people
+                    </td>
+                  </tr>
+                ) : (
+                  roleWeekData.map(({ role, peopleCount, weekStats, avgUtil }) => (
+                    <tr key={role} className="border-b border-slate-100">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-1 font-medium text-slate-700 border-r border-slate-100">
+                        <div className="flex items-center gap-1.5">
+                          <span>{role}</span>
+                          <span className="text-[10px] font-normal text-slate-400">
+                            {peopleCount} {peopleCount === 1 ? 'person' : 'people'}
+                          </span>
+                        </div>
+                      </td>
+                      {weekStats.map((ws, wi) => (
+                        <td
+                          key={wi}
+                          className={cn(
+                            'px-1 py-1 text-center tabular-nums',
+                            utilCellStyle(ws.utilPct, ws.isOver)
+                          )}
+                        >
+                          {ws.utilPct !== null ? `${ws.utilPct}%` : '—'}
+                        </td>
+                      ))}
+                      <td
+                        className={cn(
+                          'px-3 py-1 text-center font-semibold tabular-nums border-l border-slate-200',
+                          avgUtil !== null
+                            ? utilCellStyle(avgUtil, avgUtil > 100)
+                            : 'text-slate-300'
+                        )}
+                      >
+                        {avgUtil !== null ? `${avgUtil}%` : '—'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* Open demand by role */}
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -357,12 +505,14 @@ function KpiCard({
   value,
   sub,
   accent,
+  tooltip,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   sub: string;
   accent: 'red' | 'amber' | 'green' | 'neutral';
+  tooltip?: string;
 }) {
   return (
     <div
@@ -380,6 +530,13 @@ function KpiCard({
       <div className="flex items-center gap-2 mb-2">
         {icon}
         <span className="text-xs font-medium text-slate-600">{label}</span>
+        {tooltip && (
+          <Tooltip content={tooltip} borderColor="#16a34a">
+            <span className="ml-auto text-slate-400 hover:text-slate-600 cursor-help">
+              <Info className="h-3.5 w-3.5" />
+            </span>
+          </Tooltip>
+        )}
       </div>
       <div className="text-2xl font-bold text-slate-900">{value}</div>
       <div className="text-xs text-slate-400 mt-0.5">{sub}</div>

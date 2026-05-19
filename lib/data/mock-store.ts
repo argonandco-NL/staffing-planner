@@ -114,7 +114,9 @@ export function getMockStore(): StaffingStore {
 
 // ---------- Assignments ----------
 
-export function upsertAssignment(assignment: Assignment): void {
+export async function upsertAssignment(
+  assignment: Assignment
+): Promise<{ error: { message: string } | null }> {
   pushHistory();
   if (isSupabaseConfigured) return supa.upsertAssignment(assignment);
   const idx = _assignments.findIndex((a) => a.id === assignment.id);
@@ -128,6 +130,7 @@ export function upsertAssignment(assignment: Assignment): void {
     });
   }
   notifyMock();
+  return { error: null };
 }
 
 export function deleteAssignment(id: string): void {

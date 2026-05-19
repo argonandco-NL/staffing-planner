@@ -3,7 +3,7 @@
 import { Fragment, useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, AlertCircle, ChevronRight } from 'lucide-react';
 import { UndoButton } from '@/components/ui/UndoButton';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getProjectStyle, getStatusLabel } from '@/lib/ui/projectColors';
@@ -181,7 +181,16 @@ export function ProjectsView() {
                             <td className="px-3 py-2 font-medium text-slate-800">
                               {project.clientName}
                             </td>
-                            <td className="px-3 py-2 text-slate-600">{project.projectName}</td>
+                            <td className="px-3 py-2 text-slate-600">
+                              <div className="flex items-center gap-1.5">
+                                <span>{project.projectName}</span>
+                                {differenceInDays(new Date(), new Date(project.createdAt)) < 3 && (
+                                  <span className="rounded bg-yellow-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-yellow-900">
+                                    New
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-3 py-2">
                               <span
                                 className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium"
@@ -298,7 +307,14 @@ export function ProjectsView() {
                                               className="border-b border-slate-100 last:border-0"
                                             >
                                               <td className="px-3 py-1.5 font-medium text-slate-700">
-                                                {demand.roleRequired}
+                                                <div className="flex items-center gap-1.5">
+                                                  <span>{demand.roleRequired}</span>
+                                                  {differenceInDays(new Date(), new Date(demand.createdAt)) < 3 && (
+                                                    <span className="rounded bg-yellow-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-yellow-900">
+                                                      New
+                                                    </span>
+                                                  )}
+                                                </div>
                                               </td>
                                               <td className="px-3 py-1.5 text-slate-600">
                                                 {demand.daysPerWeek}d

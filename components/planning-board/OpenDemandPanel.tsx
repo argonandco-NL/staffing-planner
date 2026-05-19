@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useDraggable, useDroppable, useDndContext } from '@dnd-kit/core';
 import { AlertTriangle, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { getProjectStyle } from '@/lib/ui/projectColors';
 import { isUrgentDemand } from '@/lib/calculations/staffing';
 import type { OpenDemandItem } from '@/types';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 
 interface DemandCardProps {
   item: OpenDemandItem;
@@ -48,6 +48,11 @@ function DraggableDemandCard({ item }: DemandCardProps) {
 
       <div className="mt-1 flex items-center gap-2 flex-wrap">
         <Badge variant="secondary">{demand.roleRequired}</Badge>
+        {differenceInDays(new Date(), new Date(demand.createdAt)) < 3 && (
+          <span className="rounded bg-yellow-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-yellow-900">
+            New
+          </span>
+        )}
         <span className="text-xs text-slate-500">{demand.daysPerWeek}d/wk</span>
         {openCount > 1 && (
           <Badge variant="outline" className="text-slate-600">
@@ -85,12 +90,12 @@ export function OpenDemandPanel({ items }: OpenDemandPanelProps) {
   const activeData = dnd.active?.data.current as { type?: string } | undefined;
   const showDropHint = isOver && activeData?.type === 'assignment';
 
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Auto-collapse when there's nothing to show.
-  useEffect(() => {
-    if (items.length === 0) setCollapsed(true);
-  }, [items.length]);
+  // Default: open whenever there are open demands. Once the user clicks the
+  // toggle, their preference takes over and we stop auto-syncing with the
+  // count — so a manual collapse is never overridden when new demand arrives.
+  const [userPref, setUserPref] = useState<boolean | null>(null);
+  const collapsed = userPref ?? items.length === 0;
+  const setCollapsed = (value: boolean) => setUserPref(value);
 
   if (collapsed) {
     return (

@@ -17,6 +17,8 @@ interface AssignmentSpanProps {
   dimmed?: boolean;
   /** Click handler — used to highlight all bars of the same project */
   onSelect?: () => void;
+  /** Mark this bar with a subtle "new" indicator (added in the last 3 days) */
+  isNew?: boolean;
 }
 
 export function AssignmentSpan({
@@ -26,6 +28,7 @@ export function AssignmentSpan({
   isOverCapacity,
   dimmed,
   onSelect,
+  isNew,
 }: AssignmentSpanProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: assignment.id,
@@ -72,6 +75,14 @@ export function AssignmentSpan({
             : 'inset 0 0 0 1px rgba(255,255,255,0.8)',
         }}
       >
+      {isNew && (
+        <span
+          className="absolute top-0 right-0 rounded-bl bg-yellow-200 px-1 text-[8px] font-bold uppercase tracking-wide leading-[11px] text-yellow-900 pointer-events-none"
+          aria-label="Newly added"
+        >
+          New
+        </span>
+      )}
       {showLabel && (
         <span className="truncate">
           {project.clientName.replace('Client ', '')}

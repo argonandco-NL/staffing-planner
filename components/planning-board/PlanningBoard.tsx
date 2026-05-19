@@ -33,9 +33,10 @@ export function PlanningBoard() {
     return subscribeMockStore(() => setStore(getMockStore()));
   }, []);
 
-  const handleAssignmentChange = useCallback((assignment: Assignment) => {
-    upsertAssignment(assignment);
-  }, []);
+  const handleAssignmentChange = useCallback(
+    (assignment: Assignment) => upsertAssignment(assignment),
+    []
+  );
 
   // Flag people whose assignments exceed their contract days in any visible
   // week — holidays are intentionally excluded so the warning reflects

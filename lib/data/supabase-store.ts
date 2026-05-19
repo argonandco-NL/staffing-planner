@@ -278,18 +278,38 @@ export function subscribeStore(listener: Listener): () => void {
 
 // ---------- Assignments ----------
 
-export function upsertAssignment(assignment: Assignment): void {
+export async function upsertAssignment(
+  assignment: Assignment
+): Promise<{ error: { message: string } | null }> {
+  const previous = _cache.assignments.find((a) => a.id === assignment.id);
   const idx = _cache.assignments.findIndex((a) => a.id === assignment.id);
   if (idx >= 0) _cache.assignments[idx] = assignment;
   else _cache.assignments.push(assignment);
   notify();
 
-  void supabase!
+  const { error } = await supabase!
     .from('assignments')
-    .upsert(assignmentToRow(assignment))
-    .then(({ error }) => {
-      if (error) console.error('upsertAssignment failed:', error);
+    .upsert(assignmentToRow(assignment));
+
+  if (error) {
+    // Revert the optimistic cache update so the UI doesn't show a phantom
+    // assignment. Demand-panel rebuilds open count from cached assignments,
+    // so this restoration also brings the open demand back into view.
+    if (previous) {
+      const i = _cache.assignments.findIndex((a) => a.id === assignment.id);
+      if (i >= 0) _cache.assignments[i] = previous;
+    } else {
+      _cache.assignments = _cache.assignments.filter((a) => a.id !== assignment.id);
+    }
+    notify();
+    console.error('upsertAssignment failed:', error.message, {
+      assignmentId: assignment.id,
+      projectId: assignment.projectId,
+      status: assignment.status,
     });
+    return { error: { message: error.message } };
+  }
+  return { error: null };
 }
 
 export function deleteAssignment(id: string): void {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { addDays, parseISO, format as formatDate, differenceInDays } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -35,10 +36,15 @@ const EMPTY: Omit<Project, 'id' | 'createdAt' | 'updatedAt'> = {
 export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEditModalProps) {
   const [form, setForm] = useState<Partial<Project>>({});
   const [missing, setMissing] = useState<string[]>([]);
+  // Duration in weeks — derived from start/end on edit, drives end date on entry.
+  const [durationWeeks, setDurationWeeks] = useState<string>('');
 
   useEffect(() => {
     if (project) {
       setForm({ ...project });
+      // Derive duration from existing dates: inclusive day count → weeks (rounded).
+      const days = differenceInDays(parseISO(project.endDate), parseISO(project.startDate)) + 1;
+      setDurationWeeks(days > 0 ? String(Math.round(days / 7)) : '');
     } else {
       // Prefill both dates with today so the date picker opens on the current
       // year. The user almost always wants the current year, never 1900.
@@ -51,6 +57,7 @@ export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEdit
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      setDurationWeeks('');
     }
     setMissing([]);
   }, [project, open]);
@@ -68,12 +75,39 @@ export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEdit
     if (missing.length > 0) setMissing([]);
   }
 
+  // Recalculate the end date from start + duration. Triggered when either changes.
+  function applyDuration(startISO: string | undefined, weeksStr: string) {
+    const weeks = Number(weeksStr);
+    if (!startISO || !Number.isFinite(weeks) || weeks <= 0) return;
+    // Inclusive: weeks=1 starting Mon ends Sun → start + 7 - 1 days.
+    const end = addDays(parseISO(startISO), Math.round(weeks * 7) - 1);
+    set('endDate', formatDate(end, 'yyyy-MM-dd'));
+  }
+
+  function handleDurationChange(value: string) {
+    setDurationWeeks(value);
+    applyDuration(form.startDate, value);
+  }
+
+  function handleStartChange(value: string) {
+    set('startDate', value);
+    // If a duration is in play, re-derive end date from the new start.
+    if (durationWeeks) applyDuration(value, durationWeeks);
+  }
+
   function handleSave() {
     const m: string[] = [];
     if (!form.clientName?.trim()) m.push('client name');
     if (!form.projectName?.trim()) m.push('project name');
     if (!form.startDate) m.push('start date');
     if (!form.endDate) m.push('end date');
+    if (
+      form.startDate &&
+      form.endDate &&
+      form.endDate < form.startDate
+    ) {
+      m.push('a valid end date (must be on or after start date)');
+    }
     if (m.length > 0) {
       setMissing(m);
       return;
@@ -131,12 +165,21 @@ export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEdit
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Input
               label="Start date"
               type="date"
               value={form.startDate ?? ''}
-              onChange={(e) => set('startDate', e.target.value)}
+              onChange={(e) => handleStartChange(e.target.value)}
+            />
+            <Input
+              label="Duration (weeks)"
+              type="number"
+              min={1}
+              step={1}
+              placeholder="e.g. 12"
+              value={durationWeeks}
+              onChange={(e) => handleDurationChange(e.target.value)}
             />
             <Input
               label="End date"
@@ -158,6 +201,12 @@ export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEdit
             value={form.notes ?? ''}
             onChange={(e) => set('notes', e.target.value)}
           />
+
+          {isNew && (
+            <p className="text-xs text-slate-500 italic">
+              Required project roles and weekly capacity can be added after saving the project.
+            </p>
+          )}
         </div>
 
         <DialogFooter>

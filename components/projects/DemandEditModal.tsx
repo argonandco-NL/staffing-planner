@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { addDays, parseISO, format as formatDate, differenceInDays } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -34,10 +35,14 @@ export function DemandEditModal({
   onClose,
 }: DemandEditModalProps) {
   const [form, setForm] = useState<Partial<ProjectDemand>>({});
+  // Duration in weeks — derived from start/end on edit, drives end date on entry.
+  const [durationWeeks, setDurationWeeks] = useState<string>('');
 
   useEffect(() => {
     if (demand) {
       setForm({ ...demand });
+      const days = differenceInDays(parseISO(demand.endDate), parseISO(demand.startDate)) + 1;
+      setDurationWeeks(days > 0 ? String(Math.round(days / 7)) : '');
     } else {
       setForm({
         id: crypto.randomUUID(),
@@ -51,11 +56,30 @@ export function DemandEditModal({
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
+      setDurationWeeks('');
     }
   }, [demand, projectId, project, open]);
 
   function set<K extends keyof ProjectDemand>(field: K, value: ProjectDemand[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Recompute end date from start + duration. Identical pattern to ProjectEditModal.
+  function applyDuration(startISO: string | undefined, weeksStr: string) {
+    const weeks = Number(weeksStr);
+    if (!startISO || !Number.isFinite(weeks) || weeks <= 0) return;
+    const end = addDays(parseISO(startISO), Math.round(weeks * 7) - 1);
+    set('endDate', formatDate(end, 'yyyy-MM-dd'));
+  }
+
+  function handleDurationChange(value: string) {
+    setDurationWeeks(value);
+    applyDuration(form.startDate, value);
+  }
+
+  function handleStartChange(value: string) {
+    set('startDate', value);
+    if (durationWeeks) applyDuration(value, durationWeeks);
   }
 
   function handleSave() {
@@ -95,12 +119,21 @@ export function DemandEditModal({
             ))}
           </Select>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <Input
               label="Start date"
               type="date"
               value={form.startDate ?? ''}
-              onChange={(e) => set('startDate', e.target.value)}
+              onChange={(e) => handleStartChange(e.target.value)}
+            />
+            <Input
+              label="Duration (weeks)"
+              type="number"
+              min={1}
+              step={1}
+              placeholder="e.g. 12"
+              value={durationWeeks}
+              onChange={(e) => handleDurationChange(e.target.value)}
             />
             <Input
               label="End date"
