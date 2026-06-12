@@ -164,7 +164,7 @@ export default function AdminUsersPage() {
   return (
     <AppShell>
       <div className="h-full overflow-auto">
-        <div className="mx-auto w-full max-w-4xl p-6">
+        <div className="mx-auto w-full max-w-6xl p-6">
           <h1 className="text-lg font-semibold text-slate-900">User Management</h1>
           <p className="mt-1 text-xs text-slate-500">
             Create accounts directly with an initial password — no invitation emails are sent.
@@ -213,9 +213,9 @@ export default function AdminUsersPage() {
                 <tr>
                   <th className="px-3 py-2">Email</th>
                   <th className="px-3 py-2">Role</th>
-                  <th className="px-3 py-2">Password</th>
-                  <th className="px-3 py-2">Last sign-in</th>
-                  <th className="px-3 py-2">Created</th>
+                  <th className="whitespace-nowrap px-3 py-2">Password</th>
+                  <th className="whitespace-nowrap px-3 py-2">Last sign-in</th>
+                  <th className="whitespace-nowrap px-3 py-2">Created</th>
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -266,12 +266,14 @@ export default function AdminUsersPage() {
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-slate-500">{formatDateTime(u.lastSignInAt)}</td>
-                        <td className="px-3 py-2 text-slate-500">
+                        <td className="whitespace-nowrap px-3 py-2 text-slate-500">
+                          {formatDateTime(u.lastSignInAt)}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-slate-500">
                           {new Date(u.createdAt).toLocaleDateString()}
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                             <Button
                               variant="outline"
                               size="sm"
