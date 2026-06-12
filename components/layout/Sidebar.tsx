@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { LayoutGrid, FolderKanban, BarChart3, CalendarDays, FileUp, LogOut } from 'lucide-react';
+import { LayoutGrid, FolderKanban, BarChart3, CalendarDays, FileUp, LogOut, UserCog, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { useCurrentUser } from '@/lib/auth/useCurrentUser';
 import { LEGEND_ITEMS } from '@/lib/ui/projectColors';
 
 const NAV = [
@@ -19,18 +19,7 @@ const NAV = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [email, setEmail] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!supabase) return;
-    let cancelled = false;
-    void supabase.auth.getUser().then(({ data }) => {
-      if (!cancelled) setEmail(data.user?.email ?? null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { email, role } = useCurrentUser();
 
   async function handleSignOut() {
     if (!supabase) return;
@@ -67,6 +56,50 @@ export function Sidebar() {
             );
           })}
         </ul>
+
+        {isSupabaseConfigured && (
+          <ul className="mt-4 space-y-0.5 border-t border-slate-200 pt-3">
+            {(() => {
+              const active = pathname === '/account' || pathname.startsWith('/account/');
+              return (
+                <li>
+                  <Link
+                    href="/account"
+                    className={cn(
+                      'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                    )}
+                  >
+                    <UserCog className="h-4 w-4 shrink-0" />
+                    Account
+                  </Link>
+                </li>
+              );
+            })()}
+            {(role === 'admin' || role === 'superadmin') &&
+              (() => {
+                const active = pathname === '/admin/users' || pathname.startsWith('/admin/users/');
+                return (
+                  <li>
+                    <Link
+                      href="/admin/users"
+                      className={cn(
+                        'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                        active
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+                      )}
+                    >
+                      <ShieldCheck className="h-4 w-4 shrink-0" />
+                      Admin
+                    </Link>
+                  </li>
+                );
+              })()}
+          </ul>
+        )}
       </nav>
 
       {/* Legend — only relevant on the planning board */}

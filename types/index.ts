@@ -1,3 +1,14 @@
+export type UserRole = 'user' | 'admin' | 'superadmin';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  role: UserRole;
+  personId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type PersonRole =
   | 'Partner'
   | 'Associate Partner'

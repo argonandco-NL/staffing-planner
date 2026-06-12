@@ -9,7 +9,13 @@ import { Input } from '@/components/ui/form-inputs';
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const redirectTo = params.get('redirect') ?? '/planning';
+  // Guard against open redirect: only follow relative same-origin paths.
+  const rawRedirect = params.get('redirect') ?? '';
+  const redirectTo =
+    rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/planning';
+  const linkError = params.get('error') === 'invalid_link'
+    ? 'The password reset link has expired or is invalid. Please request a new one.'
+    : null;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -43,6 +49,12 @@ function LoginForm() {
         <h1 className="text-lg font-semibold text-slate-900">Staffing Planner</h1>
         <p className="mt-1 text-xs text-slate-500">Sign in to continue.</p>
 
+        {linkError && (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+            {linkError}
+          </div>
+        )}
+
         {!isSupabaseConfigured && (
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Supabase is not configured. Set <code>NEXT_PUBLIC_SUPABASE_URL</code> and
@@ -67,6 +79,13 @@ function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+
+          {/*
+            "Forgot password?" link temporarily disabled: it relies on
+            Supabase reset-password emails, which corporate email filtering
+            blocks for our users. Re-enable once email delivery is reliable,
+            or replace with an admin-driven reset flow.
+          */}
 
           {error && (
             <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

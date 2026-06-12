@@ -29,16 +29,16 @@ export async function proxy(req: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = req.nextUrl;
-  const isLoginPage = pathname === '/login';
+  const isPublicAuthPage = pathname === '/login' || pathname === '/forgot-password';
 
-  if (!user && !isLoginPage) {
+  if (!user && !isPublicAuthPage) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('redirect', pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && isLoginPage) {
+  if (user && isPublicAuthPage) {
     const url = req.nextUrl.clone();
     url.pathname = '/planning';
     url.searchParams.delete('redirect');
@@ -49,6 +49,7 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets and Next internals; everything else runs through the gate.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$).*)'],
+  // Skip static assets, Next internals, auth callback, and update-password
+  // (users arrive at both unauthenticated — session is established client-side).
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$|auth/callback|update-password).*)'],
 };
