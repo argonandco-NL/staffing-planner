@@ -35,6 +35,9 @@ export default function ChangePasswordPage() {
       return;
     }
     localStorage.setItem(PASSWORD_CHANGED_KEY, 'true');
+    // Record server-side that this user chose their own password (best-effort;
+    // the password change itself has already succeeded regardless).
+    void fetch('/api/account/mark-password-self-set', { method: 'POST' });
     setSuccess(true);
   }
 

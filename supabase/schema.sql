@@ -116,6 +116,10 @@ create table staffing_notes (
   created_by    text
 );
 
+-- NOTE: the `profiles` table (roles, person link) and its
+-- `password_set_by_user` column live in migrations/0001 and 0003 — they depend
+-- on auth.users and are applied after this base schema.
+
 create table import_batches (
   id            uuid primary key default gen_random_uuid(),
   type          text not null check (type in ('initial_projects', 'holidays')),

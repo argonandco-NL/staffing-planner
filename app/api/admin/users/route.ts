@@ -18,7 +18,7 @@ export async function GET() {
 
   const { data: profiles, error: profilesError } = await adminClient
     .from('profiles')
-    .select('id, role, person_id, created_at');
+    .select('id, role, person_id, created_at, password_set_by_user');
   if (profilesError) {
     return NextResponse.json({ error: profilesError.message }, { status: 500 });
   }
@@ -34,12 +34,17 @@ export async function GET() {
       personId: profile?.person_id ?? null,
       createdAt: u.created_at,
       lastSignInAt: u.last_sign_in_at ?? null,
+      passwordSetByUser: profile?.password_set_by_user ?? false,
     };
   });
 
   return NextResponse.json({ users });
 }
 
+// Create a user account directly (no invitation email). The admin supplies an
+// initial password; the account is created pre-confirmed so the user can sign
+// in immediately. Email delivery is intentionally avoided — invite/confirmation
+// links were not arriving in our environment.
 export async function POST(request: NextRequest) {
   const auth = await requireRole('admin');
   if (!auth.ok) return auth.response;
@@ -51,12 +56,18 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const email = typeof body?.email === 'string' ? body.email.trim() : '';
+  const password = typeof body?.password === 'string' ? body.password : '';
   if (!email) {
     return NextResponse.json({ error: 'Email is required' }, { status: 400 });
   }
+  if (password.length < 10) {
+    return NextResponse.json({ error: 'Password must be at least 10 characters' }, { status: 400 });
+  }
 
-  const { error } = await adminClient.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${request.nextUrl.origin}/auth/callback`,
+  const { error } = await adminClient.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
   });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
