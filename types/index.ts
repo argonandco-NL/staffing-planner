@@ -21,7 +21,7 @@ export type PersonRole =
  * 'proposal' is kept for database backwards compatibility but is treated
  * identically to 'planned' throughout the UI. Prefer 'planned' for new records.
  */
-export type ProjectStatus = 'sold' | 'planned' | 'proposal' | 'internal' | 'non_billable';
+export type ProjectStatus = 'sold' | 'planned' | 'proposal' | 'internal' | 'non_billable' | 'training';
 export type ProjectPriority = 'low' | 'medium' | 'high';
 export type AssignmentStatus = 'confirmed' | 'tentative' | 'proposed';
 export type AvailabilityExceptionType = 'holiday' | 'sick' | 'training' | 'other';

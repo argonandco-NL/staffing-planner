@@ -8,6 +8,7 @@ import {
   useSensors,
   PointerSensor,
   pointerWithin,
+  type CollisionDetection,
 } from '@dnd-kit/core';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -16,7 +17,18 @@ import { cn } from '@/lib/utils';
 import { WeekCell, CELL_W } from './WeekCell';
 import { AssignmentSpan } from './AssignmentSpan';
 import { OpenDemandPanel } from './OpenDemandPanel';
+import { ConfettiBurst } from './ConfettiBurst';
 import { isoWeekId } from '@/lib/dates/weeks';
+
+// The planning grid scrolls horizontally; cells scrolled out of view keep their
+// real (off-screen) geometry, which can overlap the Open Demand panel in screen
+// space and steal a drop. Whenever the pointer is within the panel, prefer it so
+// the entire sidebar reliably accepts "drag back to open demand".
+const collisionDetectionStrategy: CollisionDetection = (args) => {
+  const collisions = pointerWithin(args);
+  const panel = collisions.find((c) => c.id === 'demand-panel');
+  return panel ? [panel] : collisions;
+};
 import { buildOpenDemandItems } from '@/lib/calculations/staffing';
 import { overlapsWeek } from '@/lib/dates/weeks';
 import { ROLE_ORDER } from '@/lib/constants/roles';
@@ -207,6 +219,8 @@ export function PlanningGrid({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // Transient error banner shown when a drag-create fails server-side.
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Confetti burst triggered on successful new-assignment creation.
+  const [confetti, setConfetti] = useState<{ origin: { x: number; y: number }; nonce: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!scrollRef.current) return;
@@ -322,14 +336,16 @@ export function PlanningGrid({
       });
     } else if (dragData.type === 'demand') {
       const { demand, project } = dragData;
-      // Map project status → assignment status. Sold/internal/non-billable
-      // projects are confirmed at creation; planned/proposal are tentative.
-      // This matches the Supabase assignment_status enum and avoids producing
-      // assignments whose status is inconsistent with the parent project.
+      // Map project status → assignment status. Sold/internal/non-billable/
+      // training projects are confirmed at creation; planned/proposal are
+      // tentative. This matches the Supabase assignment_status enum and
+      // avoids producing assignments whose status is inconsistent with the
+      // parent project.
       const status: Assignment['status'] =
         project.status === 'sold' ||
         project.status === 'internal' ||
-        project.status === 'non_billable'
+        project.status === 'non_billable' ||
+        project.status === 'training'
           ? 'confirmed'
           : 'tentative';
 
@@ -349,11 +365,21 @@ export function PlanningGrid({
         updatedAt: new Date().toISOString(),
       };
 
+      // Capture the drop cell's position for the confetti burst before the
+      // async create resolves (the `over` rect is only valid during the event).
+      const dropRect = over.rect;
+      const burstOrigin = {
+        x: dropRect.left + dropRect.width / 2,
+        y: dropRect.top + dropRect.height / 2,
+      };
+
       void (async () => {
         try {
           const result = await onAssignmentCreate(newAssignment);
           if (result && result.error) {
             setErrorMessage(`Could not create assignment: ${result.error.message}`);
+          } else {
+            setConfetti({ origin: burstOrigin, nonce: Date.now() });
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'unknown error';
@@ -367,8 +393,14 @@ export function PlanningGrid({
   const gridWidth = PERSON_COL_W + CELL_W * weeks.length;
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd} collisionDetection={pointerWithin}>
+    <DndContext
+      sensors={sensors}
+      onDragEnd={handleDragEnd}
+      collisionDetection={collisionDetectionStrategy}
+      autoScroll={{ threshold: { x: 0, y: 0.2 } }}
+    >
       <div className="flex h-full overflow-hidden relative" onClick={() => setSelectedKey(null)}>
+        {confetti && <ConfettiBurst origin={confetti.origin} nonce={confetti.nonce} />}
         {errorMessage && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow">
             <span>{errorMessage}</span>

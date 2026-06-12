@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, UserPlus } from 'lucide-react';
 import { addWeeks } from 'date-fns';
 import { PlanningGrid } from './PlanningGrid';
@@ -41,6 +41,28 @@ export function PlanningBoard() {
       setLoadError(getLastLoadError());
     });
   }, []);
+
+  // Restore the last-viewed week window on mount, then persist changes so
+  // navigating away and back keeps the same 13-week view.
+  useEffect(() => {
+    const stored = localStorage.getItem('planning-board:week-offset');
+    if (stored !== null) {
+      const parsed = Number(stored);
+      if (!Number.isNaN(parsed)) setWeekOffset(parsed);
+    }
+  }, []);
+
+  // Persist on change, but skip the initial mount run — otherwise it would
+  // write the default offset (0) and clobber the stored value before the
+  // restore effect's state update has re-rendered.
+  const skipFirstWrite = useRef(true);
+  useEffect(() => {
+    if (skipFirstWrite.current) {
+      skipFirstWrite.current = false;
+      return;
+    }
+    localStorage.setItem('planning-board:week-offset', String(weekOffset));
+  }, [weekOffset]);
 
   const handleRefresh = useCallback(() => {
     void reloadStore();

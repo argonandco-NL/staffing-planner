@@ -149,6 +149,7 @@ export function ProjectEditModal({ open, project, onSave, onClose }: ProjectEdit
               <option value="planned">Planned</option>
               <option value="internal">Internal</option>
               <option value="non_billable">Non-billable</option>
+              <option value="training">Training</option>
             </Select>
 
             {/* Sold projects always run at 100% probability — locked + greyed

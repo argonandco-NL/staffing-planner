@@ -63,6 +63,18 @@ export function ProjectsView() {
     setDemandModalOpen(true);
   }
 
+  function handleSaveProject(project: Project) {
+    const isNew = editingProject === null;
+    upsertProject(project);
+    setProjectModalOpen(false);
+    // A brand-new project has no roles yet — jump straight into defining the
+    // first one so the project isn't left empty/unstaffable.
+    if (isNew) {
+      setExpandedProjects((prev) => new Set(prev).add(project.id));
+      openNewDemand(project.id);
+    }
+  }
+
   function handleSaveDemand(demand: ProjectDemand) {
     upsertDemand(demand);
     setDemandModalOpen(false);
@@ -107,7 +119,9 @@ export function ProjectsView() {
   const grouped: Record<'sold' | 'planned' | 'internal', Project[]> = {
     sold: store.projects.filter((p) => p.status === 'sold'),
     planned: store.projects.filter((p) => p.status === 'planned' || p.status === 'proposal'),
-    internal: store.projects.filter((p) => p.status === 'internal' || p.status === 'non_billable'),
+    internal: store.projects.filter(
+      (p) => p.status === 'internal' || p.status === 'non_billable' || p.status === 'training'
+    ),
   };
 
   return (
@@ -128,7 +142,7 @@ export function ProjectsView() {
         {Object.entries(grouped).map(([group, projects]) => (
           <section key={group}>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              {group === 'sold' ? 'Sold / Confirmed' : group === 'planned' ? 'Planned' : 'Internal / Non-billable'}
+              {group === 'sold' ? 'Sold / Confirmed' : group === 'planned' ? 'Planned' : 'Internal / Non-billable / Training'}
               {' '}({projects.length})
             </h2>
             <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -397,7 +411,7 @@ export function ProjectsView() {
       <ProjectEditModal
         open={projectModalOpen}
         project={editingProject}
-        onSave={(p) => { upsertProject(p); setProjectModalOpen(false); }}
+        onSave={handleSaveProject}
         onClose={() => setProjectModalOpen(false)}
       />
 

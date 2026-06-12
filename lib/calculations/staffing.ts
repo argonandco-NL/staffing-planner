@@ -78,6 +78,7 @@ const STATUS_PRIORITY: Record<string, number> = {
   proposal: 1,
   internal: 2,
   non_billable: 2,
+  training: 2,
 };
 
 // Role seniority: lower index = more senior. Used as the secondary sort key.

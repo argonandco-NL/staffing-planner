@@ -18,8 +18,9 @@ create type person_role as enum (
 );
 
 create type project_status as enum (
-  'sold', 'planned', 'proposal', 'internal', 'non_billable'
+  'sold', 'planned', 'proposal', 'internal', 'non_billable', 'training'
 );
+-- 'training' was added by migrations/0002_add_training_project_status.sql
 
 create type project_priority as enum ('low', 'medium', 'high');
 

@@ -26,6 +26,9 @@ export function getProjectStyle(project: Project): React.CSSProperties {
     case 'non_billable':
       return { backgroundColor: '#9333ea', color: '#fff' }; // purple-600
 
+    case 'training':
+      return { backgroundColor: '#c084fc', color: '#fff' }; // purple-400
+
     default:
       return { backgroundColor: '#94a3b8', color: '#fff' };
   }
@@ -42,6 +45,7 @@ export function getStatusLabel(status: ProjectStatus): string {
     case 'proposal': return 'Planned';
     case 'internal': return 'Internal';
     case 'non_billable': return 'Non-billable';
+    case 'training': return 'Training';
     default: return status;
   }
 }
@@ -52,4 +56,5 @@ export const LEGEND_ITEMS = [
   { label: 'Planned (high prob.)', style: { backgroundColor: 'rgba(29,78,216,0.9)' } },
   { label: 'Planned (low prob.)', style: { backgroundColor: 'rgba(29,78,216,0.15)' } },
   { label: 'Internal', style: { backgroundColor: '#9333ea' } },
+  { label: 'Training', style: { backgroundColor: '#c084fc' } },
 ] as const;

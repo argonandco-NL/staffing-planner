@@ -1,12 +1,17 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { Upload, Download, Info } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Upload, Download, Info, Clock } from 'lucide-react';
+import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { getMockStore, replaceAllExceptions } from '@/lib/data/mock-store';
 import { parseHolidayFile } from '@/lib/excel/importers';
 import { exportFullWorkbook } from '@/lib/excel/exporters';
 import { getNext13Weeks } from '@/lib/dates/weeks';
+
+// Records when holidays were last imported so the sheet can show it across
+// sessions. Stored as an ISO timestamp string.
+const LAST_HOLIDAY_IMPORT_KEY = 'holidays:last-import';
 
 // Privacy notice: real holiday or staffing spreadsheets must never be committed
 // to the repo — see the banner inside the page for a user-facing reminder.
@@ -21,6 +26,12 @@ export function ImportExportView() {
   const [dragOver, setDragOver] = useState(false);
   const [status, setStatus] = useState<ImportStatus>({ kind: 'idle' });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Read on mount (not during render) to avoid an SSR/CSR hydration mismatch.
+  const [lastImport, setLastImport] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLastImport(localStorage.getItem(LAST_HOLIDAY_IMPORT_KEY));
+  }, []);
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -32,6 +43,9 @@ export function ImportExportView() {
       // Each import REPLACES the previous holiday list — the spreadsheet is
       // the source of truth, the app just mirrors it.
       replaceAllExceptions(exceptions);
+      const now = new Date().toISOString();
+      localStorage.setItem(LAST_HOLIDAY_IMPORT_KEY, now);
+      setLastImport(now);
       setStatus({ kind: 'done', imported: exceptions.length, warnings });
     } catch (e) {
       setStatus({
@@ -74,7 +88,20 @@ export function ImportExportView() {
 
         {/* Import section */}
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Import — holiday planning</h2>
+          <h2 className="mb-2 text-sm font-semibold text-slate-900">Import — holiday planning</h2>
+          <div className="mb-3 flex items-center gap-1.5 text-xs text-slate-500">
+            <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            {lastImport ? (
+              <span>
+                Last import:{' '}
+                <span className="font-medium text-slate-700">
+                  {format(new Date(lastImport), "d MMM yyyy 'at' HH:mm")}
+                </span>
+              </span>
+            ) : (
+              <span>No holidays imported yet.</span>
+            )}
+          </div>
           <p className="mb-3 text-xs text-slate-500">
             Upload the team holiday spreadsheet. The first sheet is read; any row
             below a header containing the cells{' '}

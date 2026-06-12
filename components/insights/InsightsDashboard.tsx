@@ -35,11 +35,12 @@ function pct(n: number) {
 // Background + text colour for a utilisation cell
 function utilCellStyle(utilPct: number | null, isOver: boolean) {
   if (utilPct === null) return 'bg-slate-50 text-slate-300';
-  if (isOver) return 'bg-red-100 text-red-700 font-semibold';
-  if (utilPct >= 80) return 'bg-green-100 text-green-800';
-  if (utilPct >= 40) return 'bg-amber-50 text-amber-700';
-  if (utilPct > 0) return 'bg-white text-slate-500';
-  return 'bg-slate-50 text-slate-300';
+  if (isOver) return 'bg-emerald-900 text-white font-semibold';   // > 100%: very dark green
+  if (utilPct >= 80) return 'bg-green-100 text-green-800';        // healthy
+  if (utilPct >= 40) return 'bg-amber-50 text-amber-700';         // moderate
+  if (utilPct > 30) return 'bg-red-100 text-red-700';             // low
+  // 0–30%: soft pink for the idlest staff, with 0% treated the same as 1%.
+  return 'bg-pink-100 text-pink-700';
 }
 
 export function InsightsDashboard() {
@@ -51,6 +52,13 @@ export function InsightsDashboard() {
   const [weekOffset, setWeekOffset] = useState(0);
   const weeks = getNext13Weeks(addWeeks(new Date(), weekOffset));
   const activePeople = store.people.filter((p) => p.active);
+
+  // Partners carry no billable utilisation target, so they are excluded from
+  // the billable ratio and the under-allocation KPI (counting their idle days
+  // would falsely inflate "people with spare capacity").
+  const BILLABLE_RATIO_EXCLUDED_ROLES: PersonRole[] = ['Partner'];
+  const isExcludedFromBillable = (role: PersonRole) =>
+    BILLABLE_RATIO_EXCLUDED_ROLES.includes(role);
 
   // ── Per-person × per-week utilisation (replaces the old per-role heatmap) ──
   const sortedPeople = [...store.people].sort((a, b) => {
@@ -84,7 +92,9 @@ export function InsightsDashboard() {
   ).length;
 
   // Under 40% in next week's available days (0% counts as under-allocated too).
+  // Partners excluded — they have no billable utilisation target.
   const underAllocatedNext = activePeople.filter((p) => {
+    if (isExcludedFromBillable(p.role)) return false;
     const s = getPersonWeekStats(p, nextWeek, store.assignments, store.availabilityExceptions);
     if (s.availableDays <= 0) return false;
     const u = (s.assignedDays / s.availableDays) * 100;
@@ -104,7 +114,14 @@ export function InsightsDashboard() {
   // ── Billable ratio (next 4 weeks, excluding current week) ────────────────
   // Numerator: sold-project days at 100% + planned/proposal days × probability.
   // Denominator: active-people capacity minus vacation/leave days.
+  //
+  // Partners are EXCLUDED from both sides (see BILLABLE_RATIO_EXCLUDED_ROLES
+  // above): counting their capacity (denominator) or their occasional delivery
+  // days (numerator) would distort the team ratio.
   const projectsById = new Map(store.projects.map((p) => [p.id, p]));
+  const peopleById = new Map(store.people.map((p) => [p.id, p]));
+  // Active people whose utilisation counts toward the billable ratio.
+  const billablePeople = activePeople.filter((p) => !isExcludedFromBillable(p.role));
 
   function daysForAssignmentInWindow(a: Assignment): number {
     return nextFour.reduce(
@@ -119,6 +136,10 @@ export function InsightsDashboard() {
   for (const a of store.assignments) {
     const proj = projectsById.get(a.projectId);
     if (!proj) continue;
+    // Skip days delivered by partners — excluded from the numerator to match
+    // their exclusion from the capacity denominator below.
+    const person = peopleById.get(a.personId);
+    if (person && isExcludedFromBillable(person.role)) continue;
     const days = daysForAssignmentInWindow(a as Assignment);
     if (proj.status === 'sold') {
       soldProjectDays += days;
@@ -129,12 +150,12 @@ export function InsightsDashboard() {
     // internal / non_billable explicitly excluded from numerator.
   }
 
-  const totalCapacityDays = activePeople.reduce(
+  const totalCapacityDays = billablePeople.reduce(
     (sum, p) => sum + p.contractDaysPerWeek * nextFour.length,
     0
   );
-  // Vacation/leave days falling inside the window for active people.
-  const vacationDaysInWindow = activePeople.reduce((sum, person) => {
+  // Vacation/leave days falling inside the window for billable (non-partner) people.
+  const vacationDaysInWindow = billablePeople.reduce((sum, person) => {
     const personExceptions = store.availabilityExceptions.filter((e) => e.personId === person.id);
     const days = nextFour.reduce((wkSum, w) => {
       const exc = personExceptions.find((e) => overlapsWeek(e.startDate, e.endDate, w));
@@ -248,7 +269,7 @@ export function InsightsDashboard() {
             icon={<Users className="h-4 w-4 text-amber-500" />}
             label="Under-allocated next week"
             value={String(underAllocatedNext)}
-            sub={`< 40% utilisation in W${nextWeek.week}`}
+            sub={`< 40% utilisation in W${nextWeek.week} · excl. partners`}
             accent="amber"
           />
           <KpiCard
@@ -260,13 +281,14 @@ export function InsightsDashboard() {
           />
           <KpiCard
             icon={<TrendingUp className="h-4 w-4 text-green-500" />}
-            label="Billable ratio (next 4 wks)"
+            label="Billable ratio (next 4 wks, excl. partners)"
             value={pct(billablePct)}
-            sub={`${Math.round(billableNumerator)}d of ${Math.round(netCapacityDays)}d net capacity`}
+            sub={`${Math.round(billableNumerator)}d of ${Math.round(netCapacityDays)}d net capacity · excl. partners`}
             accent="green"
             tooltip={[
               `Period: next 4 weeks, excluding current week`,
-              `Active people: ${activePeople.length}`,
+              `Partners excluded (no billable target): ${activePeople.length - billablePeople.length}`,
+              `Active people counted: ${billablePeople.length} of ${activePeople.length}`,
               `Sold project days: ${Math.round(soldProjectDays)}`,
               `Planned project days (raw): ${Math.round(plannedProjectDaysRaw)}`,
               `Weighted planned contribution: ${Math.round(weightedPlannedDays)}`,
@@ -350,7 +372,7 @@ export function InsightsDashboard() {
             </table>
           </div>
           <p className="mt-1 text-[10px] text-slate-400">
-            Green ≥ 80% · Amber 40–79% · White &lt; 40% · Red = over-allocated
+            Green ≥ 80% · Amber 40–79% · Red 31–39% · Pink ≤ 30% (idle) · Dark green = over-allocated
           </p>
         </section>
 

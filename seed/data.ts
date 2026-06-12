@@ -216,7 +216,7 @@ export const SEED_PROJECTS: Project[] = [
     id: 'proj-internal-tr',
     clientName: 'Internal',
     projectName: 'Training Program',
-    status: 'non_billable',
+    status: 'training',
     probability: 100,
     startDate: '2026-05-01',
     endDate: '2026-06-30',
