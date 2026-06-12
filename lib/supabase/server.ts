@@ -1,11 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import type { NextRequest, NextResponse } from 'next/server';
-import { isSupabaseConfigured } from './client';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export { isSupabaseConfigured };
+// Derived server-side — avoids importing across the 'use client' boundary.
+export const isSupabaseConfigured = Boolean(url && key);
 
 /**
  * Server-side Supabase client for use inside Next.js proxy (formerly middleware).
@@ -13,8 +13,8 @@ export { isSupabaseConfigured };
  * so the auth state stays in sync between server and browser.
  */
 export function createProxySupabaseClient(req: NextRequest, res: NextResponse) {
-  if (!isSupabaseConfigured) return null;
-  return createServerClient(url!, key!, {
+  if (!url || !key) return null;
+  return createServerClient(url, key, {
     cookies: {
       getAll() {
         return req.cookies.getAll();

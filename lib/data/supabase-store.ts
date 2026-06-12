@@ -237,16 +237,17 @@ async function loadAll(): Promise<void> {
     supabase.from('availability_exceptions').select('*').order('created_at', { ascending: true }),
   ]);
 
-  // Per-table diagnostics — surfaced in the browser console so a stuck deploy
-  // can be diagnosed without server access.
-  const counts = {
-    people: peopleRes.data?.length ?? 0,
-    projects: projectsRes.data?.length ?? 0,
-    projectDemands: demandsRes.data?.length ?? 0,
-    assignments: assignmentsRes.data?.length ?? 0,
-    availabilityExceptions: exceptionsRes.data?.length ?? 0,
-  };
-  console.log('[Supabase] Loaded rows:', counts);
+  // Row-count diagnostics only in development — avoids leaking database
+  // metadata to browser developer tools in production.
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Supabase] Loaded rows:', {
+      people: peopleRes.data?.length ?? 0,
+      projects: projectsRes.data?.length ?? 0,
+      projectDemands: demandsRes.data?.length ?? 0,
+      assignments: assignmentsRes.data?.length ?? 0,
+      availabilityExceptions: exceptionsRes.data?.length ?? 0,
+    });
+  }
 
   const tableErrors: { table: string; message: string }[] = [];
   if (peopleRes.error) tableErrors.push({ table: 'people', message: peopleRes.error.message });
