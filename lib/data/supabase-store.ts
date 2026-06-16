@@ -227,15 +227,30 @@ function exceptionToRow(e: AvailabilityException): Row {
 // Bulk fetch
 // ---------------------------------------------------------------------------
 
-async function loadAll(): Promise<void> {
-  if (!supabase) return;
-  const [peopleRes, projectsRes, demandsRes, assignmentsRes, exceptionsRes] = await Promise.all([
-    supabase.from('people').select('*').order('created_at', { ascending: true }),
-    supabase.from('projects').select('*').order('created_at', { ascending: true }),
-    supabase.from('project_demands').select('*').order('created_at', { ascending: true }),
-    supabase.from('assignments').select('*').order('created_at', { ascending: true }),
-    supabase.from('availability_exceptions').select('*').order('created_at', { ascending: true }),
+// PostgREST rejects tokens whose iat/exp fall outside its (few-minute) clock-skew
+// tolerance. After the app sits idle for days, a wake-from-sleep clock jump or a
+// stale-session token refresh can momentarily produce a token the server reads as
+// "issued in the future". Messages seen: "JWT issued at future", "JWT expired",
+// "JWSError". Forcing a fresh token and retrying usually clears it.
+function isJwtClockError(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes('jwt') || m.includes('issued at future') || m.includes('jws');
+}
+
+function runTableQueries() {
+  return Promise.all([
+    supabase!.from('people').select('*').order('created_at', { ascending: true }),
+    supabase!.from('projects').select('*').order('created_at', { ascending: true }),
+    supabase!.from('project_demands').select('*').order('created_at', { ascending: true }),
+    supabase!.from('assignments').select('*').order('created_at', { ascending: true }),
+    supabase!.from('availability_exceptions').select('*').order('created_at', { ascending: true }),
   ]);
+}
+
+async function loadAll(attempt = 0): Promise<void> {
+  if (!supabase) return;
+  const [peopleRes, projectsRes, demandsRes, assignmentsRes, exceptionsRes] =
+    await runTableQueries();
 
   // Row-count diagnostics only in development — avoids leaking database
   // metadata to browser developer tools in production.
@@ -256,8 +271,21 @@ async function loadAll(): Promise<void> {
   if (assignmentsRes.error) tableErrors.push({ table: 'assignments', message: assignmentsRes.error.message });
   if (exceptionsRes.error) tableErrors.push({ table: 'availability_exceptions', message: exceptionsRes.error.message });
 
+  // Auto-recover from clock-skew / stale-session rejections: force a fresh token
+  // and retry the bulk load once before surfacing anything to the user.
+  if (attempt === 0 && tableErrors.some((e) => isJwtClockError(e.message))) {
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      // Ignore — the retried requests also trigger supabase-js auto-refresh.
+    }
+    return loadAll(1);
+  }
+
   if (tableErrors.length > 0) {
-    _lastLoadError = tableErrors.map((e) => `${e.table}: ${e.message}`).join(' · ');
+    _lastLoadError = tableErrors.some((e) => isJwtClockError(e.message))
+      ? "Your session or device clock is out of sync — check your computer's time, then click Refresh."
+      : tableErrors.map((e) => `${e.table}: ${e.message}`).join(' · ');
     console.error('[Supabase] Load errors:', tableErrors);
   } else {
     _lastLoadError = null;
